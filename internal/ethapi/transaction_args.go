@@ -53,6 +53,16 @@ type TransactionArgs struct {
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
+
+	// ALEXF fields added for Type 4 AA Transaction
+	Sender        *common.Address
+	Signature     []byte
+	PaymasterData []byte
+	DeployerData  []byte
+	BuilderFee    *big.Int
+	ValidationGas uint64
+	PaymasterGas  uint64
+	BigNonce      *big.Int // AA nonce is 256 bits wide
 }
 
 // from retrieves the transaction sender address.
@@ -284,6 +294,9 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (*
 func (args *TransactionArgs) toTransaction() *types.Transaction {
 	var data types.TxData
 	switch {
+	case args.Sender != nil:
+		println("Hello ALEXF!")
+		fallthrough
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}
 		if args.AccessList != nil {
