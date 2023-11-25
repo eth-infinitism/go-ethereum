@@ -1913,6 +1913,11 @@ func (s *TransactionAPI) SendTransaction(ctx context.Context, args TransactionAr
 	// Assemble the transaction and sign with the wallet
 	tx := args.toTransaction()
 
+	// TODO: Accept AA transactions from EOA;
+	//  here we are accepting via 'eth_sendTransaction' but only with Smart Contract Account signature included
+	if tx.Type() == types.ALEXF_AA_TX_TYPE {
+		return SubmitTransaction(ctx, s.b, tx)
+	}
 	signed, err := wallet.SignTx(account, tx, s.b.ChainConfig().ChainID)
 	if err != nil {
 		return common.Hash{}, err

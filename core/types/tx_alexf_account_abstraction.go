@@ -68,6 +68,15 @@ func (tx *AlexfAccountAbstractionTx) copy() TxData {
 		//V:          new(big.Int),
 		//R:          new(big.Int),
 		//S:          new(big.Int),
+
+		//Sender:         *common.Address
+		//Signature:      []byte
+		PaymasterData: common.CopyBytes(tx.Data),
+		//DeployerData:   []byte
+		//BuilderFee:     *hexutil.Big
+		//ValidationGas:  uint64
+		//PaymasterGas:   uint64
+		//BigNonce:       *hexutil.Big // AA nonce is 256 bits wide
 	}
 	copy(cpy.AccessList, tx.AccessList)
 	if tx.Value != nil {
