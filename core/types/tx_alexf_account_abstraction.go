@@ -42,7 +42,7 @@ type AlexfAccountAbstractionTx struct {
 	BuilderFee    *big.Int
 	ValidationGas uint64
 	PaymasterGas  uint64
-	Nonce         *big.Int // AA nonce is 256 bits wide
+	BigNonce      *big.Int // AA nonce is 256 bits wide
 
 	// removed fields
 	//Nonce      uint64
@@ -55,10 +55,10 @@ type AlexfAccountAbstractionTx struct {
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *AlexfAccountAbstractionTx) copy() TxData {
 	cpy := &AlexfAccountAbstractionTx{
-		Nonce: tx.Nonce,
-		To:    copyAddressPtr(tx.To),
-		Data:  common.CopyBytes(tx.Data),
-		Gas:   tx.Gas,
+		BigNonce: tx.BigNonce,
+		To:       copyAddressPtr(tx.To),
+		Data:     common.CopyBytes(tx.Data),
+		Gas:      tx.Gas,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
 		Value:      new(big.Int),
@@ -105,7 +105,7 @@ func (tx *AlexfAccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTipC
 func (tx *AlexfAccountAbstractionTx) gasPrice() *big.Int     { return tx.GasFeeCap }
 func (tx *AlexfAccountAbstractionTx) value() *big.Int        { return tx.Value }
 func (tx *AlexfAccountAbstractionTx) nonce() uint64          { return 0 }
-func (tx *AlexfAccountAbstractionTx) bigNonce() *big.Int     { return tx.Nonce }
+func (tx *AlexfAccountAbstractionTx) bigNonce() *big.Int     { return tx.BigNonce }
 func (tx *AlexfAccountAbstractionTx) to() *common.Address    { return tx.To }
 
 func (tx *AlexfAccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
