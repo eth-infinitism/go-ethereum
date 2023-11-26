@@ -104,6 +104,59 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
+// TODO: 1. This 'msg' is not relevant at all
+func applyAlexfAATransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+	// Create a new context to be used in the EVM environment.
+	txContext := NewEVMTxContext(msg)
+	evm.Reset(txContext, statedb)
+	aatx := tx.AlexfAATransactionData()
+
+	var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
+
+	paymasterMsg := &Message{
+		From:              *aatx.Sender,
+		To:                &paymasterAddress,
+		Value:             big.NewInt(0),
+		GasLimit:          100000,
+		GasPrice:          big.NewInt(875000000),
+		GasFeeCap:         big.NewInt(875000000),
+		GasTipCap:         big.NewInt(875000000),
+		Data:              make([]byte, 0),
+		AccessList:        tx.AccessList(),
+		SkipAccountChecks: true,
+	}
+
+	// Apply the Paymaster call frame transaction to the current state (included in the env).
+	resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update the state with pending changes.
+	var root []byte
+	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: *usedGas}
+
+	// TODO: define statuses enum for AA transactions?
+	if resultPm.Failed() {
+		receipt.Status = types.ReceiptStatusFailed
+	} else {
+		receipt.Status = types.ReceiptStatusSuccessful
+	}
+
+	// Apply the transaction to the current state (included in the env).
+	result, err := ApplyMessage(evm, msg, gp)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.Failed() {
+		receipt.Status = types.ReceiptStatusFailed
+	} else {
+		receipt.Status = types.ReceiptStatusSuccessful
+	}
+	return receipt, err
+}
+
 func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
@@ -168,6 +221,20 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	txContext := NewEVMTxContext(msg)
 	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 	return applyTransaction(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
+}
+
+// ApplyAlexfAATransaction
+// TODO
+func ApplyAlexfAATransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+	if err != nil {
+		return nil, err
+	}
+	// Create a new context to be used in the EVM environment
+	blockContext := NewEVMBlockContext(header, bc, author)
+	txContext := NewEVMTxContext(msg)
+	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	return applyAlexfAATransaction(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }
 
 // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root

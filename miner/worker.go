@@ -745,6 +745,16 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction) ([]*
 	if tx.Type() == types.BlobTxType {
 		return w.commitBlobTransaction(env, tx)
 	}
+	if tx.Type() == types.ALEXF_AA_TX_TYPE {
+		println("ALEXF commiting AA transaction")
+		receipt, err := w.applyAlexfAATransaction(env, tx)
+		if err != nil {
+			return nil, err
+		}
+		env.txs = append(env.txs, tx)
+		env.receipts = append(env.receipts, receipt)
+		return receipt.Logs, nil
+	}
 	receipt, err := w.applyTransaction(env, tx)
 	if err != nil {
 		return nil, err
@@ -776,6 +786,19 @@ func (w *worker) commitBlobTransaction(env *environment, tx *types.Transaction) 
 	env.blobs += len(sc.Blobs)
 	*env.header.BlobGasUsed += receipt.BlobGasUsed
 	return receipt.Logs, nil
+}
+
+func (w *worker) applyAlexfAATransaction(env *environment, tx *types.Transaction) (*types.Receipt, error) {
+	var (
+		snap = env.state.Snapshot()
+		gp   = env.gasPool.Gas()
+	)
+	receipt, err := core.ApplyAlexfAATransaction(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
+	if err != nil {
+		env.state.RevertToSnapshot(snap)
+		env.gasPool.SetGas(gp)
+	}
+	return receipt, err
 }
 
 // applyTransaction runs the transaction. If execution fails, state and gas pool are reverted.

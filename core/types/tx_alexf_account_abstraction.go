@@ -69,9 +69,9 @@ func (tx *AlexfAccountAbstractionTx) copy() TxData {
 		//R:          new(big.Int),
 		//S:          new(big.Int),
 
-		//Sender:         *common.Address
+		Sender: copyAddressPtr(tx.Sender),
 		//Signature:      []byte
-		PaymasterData: common.CopyBytes(tx.Data),
+		PaymasterData: common.CopyBytes(tx.PaymasterData),
 		//DeployerData:   []byte
 		//BuilderFee:     *hexutil.Big
 		//ValidationGas:  uint64

@@ -415,6 +415,14 @@ func (tx *Transaction) BlobTxSidecar() *BlobTxSidecar {
 	return nil
 }
 
+// AlexfAATransactionData to get the inner part as AA tx struct
+// TODO: this is not how it should be done
+func (tx *Transaction) AlexfAATransactionData() *AlexfAccountAbstractionTx {
+	inner := tx.inner
+	ptr := inner.(*AlexfAccountAbstractionTx)
+	return ptr
+}
+
 // BlobGasFeeCapCmp compares the blob fee cap of two transactions.
 func (tx *Transaction) BlobGasFeeCapCmp(other *Transaction) int {
 	return tx.BlobGasFeeCap().Cmp(other.BlobGasFeeCap())

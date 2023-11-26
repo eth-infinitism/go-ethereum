@@ -12,7 +12,8 @@ import (
 
 // AccountAbstractionPool is the transaction pool dedicated to RIP-7560 AA transactions.
 type AlexfAccountAbstractionPool struct {
-	discoverFeed event.Feed // Event feed to send out new tx events on pool inclusion (reorg included)
+	discoverFeed      event.Feed // Event feed to send out new tx events on pool inclusion (reorg included)
+	storedTransaction *types.Transaction
 }
 
 func (p *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Header, reserve txpool.AddressReserver) error {
@@ -45,7 +46,7 @@ func (p *AlexfAccountAbstractionPool) Has(hash common.Hash) bool {
 func (p *AlexfAccountAbstractionPool) Get(hash common.Hash) *types.Transaction {
 	//TODO implement me
 	//panic("implement me")
-	return nil
+	return p.storedTransaction
 }
 
 func (p *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, sync bool) []error {
@@ -69,6 +70,7 @@ func (p *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, 
 }
 
 func (p *AlexfAccountAbstractionPool) add(tx *types.Transaction) (err error) {
+	p.storedTransaction = tx
 	return nil
 }
 
@@ -85,7 +87,8 @@ func (p *AlexfAccountAbstractionPool) SubscribeTransactions(ch chan<- core.NewTx
 
 func (p *AlexfAccountAbstractionPool) Nonce(addr common.Address) uint64 {
 	//TODO implement me
-	panic("implement me")
+	//panic("implement me")
+	return 0
 }
 
 func (p *AlexfAccountAbstractionPool) Stats() (int, int) {
