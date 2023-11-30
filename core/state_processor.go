@@ -17,10 +17,9 @@
 package core
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
@@ -28,7 +27,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"math/big"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -104,50 +105,101 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
+func applyAlexfAATransactionValidationPhase() error {
+
+	return nil
+}
+
+func applyAlexfAATransactionExecutionPhase() (*types.Receipt, error) {
+
+	return nil, nil
+}
+
 // TODO: 1. This 'msg' is not relevant at all
-func applyAlexfAATransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
-	// Create a new context to be used in the EVM environment.
-	txContext := NewEVMTxContext(msg)
+func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
 	evm.Reset(txContext, statedb)
 	aatx := tx.AlexfAATransactionData()
 
-	var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
+	// Validation phase
+	// TODO: extract into separate reusable function and apply it separately
 
-	paymasterMsg := &Message{
-		From:              *aatx.Sender,
-		To:                &paymasterAddress,
-		Value:             big.NewInt(0),
-		GasLimit:          100000,
-		GasPrice:          big.NewInt(875000000),
-		GasFeeCap:         big.NewInt(875000000),
-		GasTipCap:         big.NewInt(875000000),
-		Data:              make([]byte, 0),
-		AccessList:        tx.AccessList(),
-		SkipAccountChecks: true,
+	nonceManagerMsg := &Message{}
+	resultNonceManager, err := ApplyMessage(evm, nonceManagerMsg, gp)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("ALEXF AA resultNonceManager: %s", hex.EncodeToString(resultNonceManager.ReturnData))
+
+	var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
+	if (deployerAddress.Cmp(common.Address{}) != 0) {
+		deployerMsg := &Message{}
+		resultDeployer, err := ApplyMessage(evm, deployerMsg, gp)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Printf("ALEXF AA resultDeployer: %s", hex.EncodeToString(resultDeployer.ReturnData))
 	}
 
-	// Apply the Paymaster call frame transaction to the current state (included in the env).
-	resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
+	accountValidationMsg := &Message{}
+	resultAccountValidation, err := ApplyMessage(evm, accountValidationMsg, gp)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("ALEXF AA resultAccountValidation: %s", hex.EncodeToString(resultAccountValidation.ReturnData))
+
+	var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
+	var paymasterContext []byte
+	if (paymasterAddress.Cmp(common.Address{}) != 0) {
+		paymasterMsg := &Message{
+			From:              *aatx.Sender,
+			To:                &paymasterAddress,
+			Value:             big.NewInt(0),
+			GasLimit:          100000,
+			GasPrice:          big.NewInt(875000000),
+			GasFeeCap:         big.NewInt(875000000),
+			GasTipCap:         big.NewInt(875000000),
+			Data:              aatx.PaymasterData[20:],
+			AccessList:        tx.AccessList(),
+			SkipAccountChecks: true,
+			IsInnerAATxFrame:  true,
+		}
+
+		// Apply the Paymaster call frame transaction to the current state (included in the env).
+		resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
+		if err != nil {
+			return nil, err
+		}
+
+		if resultPm.Failed() {
+			log.Error("ALEXF AA: paymaster validation failed")
+			return nil, errors.New("paymaster validation failed - invalid transaction")
+		}
+	}
+
+	// Execution phase
+	accountExecutionMsg := &Message{}
+	// TODO: snapshot EVM - we will fall back here if postOp fails
+	// / FAILS as msg.From is 0x000 because it is read from the signature
+	// Apply the execution call frame transaction to the current state
+	result, err := ApplyMessage(evm, accountExecutionMsg, gp)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update the state with pending changes.
+	if len(paymasterContext) != 0 {
+		paymasterPostOpMsg := &Message{}
+		resultPostOp, err := ApplyMessage(evm, paymasterPostOpMsg, gp)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Printf("ALEXF AA resultPostOp: %s", hex.EncodeToString(resultPostOp.ReturnData))
+	}
+
 	var root []byte
 	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: *usedGas}
 
-	// TODO: define statuses enum for AA transactions?
-	if resultPm.Failed() {
-		receipt.Status = types.ReceiptStatusFailed
-	} else {
-		receipt.Status = types.ReceiptStatusSuccessful
-	}
-
-	// Apply the transaction to the current state (included in the env).
-	result, err := ApplyMessage(evm, msg, gp)
-	if err != nil {
-		return nil, err
-	}
+	// Set the receipt logs and create the bloom filter.
+	receipt.Logs = statedb.GetLogs(tx.Hash(), blockNumber.Uint64(), blockHash)
 
 	if result.Failed() {
 		receipt.Status = types.ReceiptStatusFailed
@@ -230,11 +282,12 @@ func ApplyAlexfAATransaction(config *params.ChainConfig, bc ChainContext, author
 	if err != nil {
 		return nil, err
 	}
+	msg.From = *tx.AlexfAATransactionData().Sender
 	// Create a new context to be used in the EVM environment
 	blockContext := NewEVMBlockContext(header, bc, author)
 	txContext := NewEVMTxContext(msg)
 	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
-	return applyAlexfAATransaction(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
+	return applyAlexfAATransaction(txContext, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }
 
 // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root

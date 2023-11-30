@@ -815,6 +815,21 @@ func (w *worker) applyTransaction(env *environment, tx *types.Transaction) (*typ
 	return receipt, err
 }
 
+func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
+	for {
+		// Retrieve the next transaction and abort if all done.
+		ltx := txs.Peek()
+		tx := ltx.Resolve()
+		if tx.Type() != types.ALEXF_AA_TX_TYPE {
+			log.Error("ALEXF: skipping a legacy transaction in 'commitBatchAlexfAATransactions' function")
+			txs.Pop()
+			return nil
+		}
+		log.Error("ALEXF: including transaction")
+		return nil
+	}
+}
+
 func (w *worker) commitTransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
 	gasLimit := env.header.GasLimit
 	if env.gasPool == nil {
@@ -857,6 +872,13 @@ func (w *worker) commitTransactions(env *environment, txs *transactionsByPriceAn
 			txs.Pop()
 			continue
 		}
+
+		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+			log.Error("ALEXF: skipping an AA transaction in 'commitTransactions' function")
+			txs.Pop()
+			continue
+		}
+
 		// Error may be ignored here. The error has already been checked
 		// during transaction acceptance is the transaction pool.
 		from, _ := types.Sender(env.signer, tx)
@@ -1019,6 +1041,17 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 		}
 	}
 
+	// With naive ordering AA transactions all go first
+	if len(remoteTxs) > 0 {
+		// TODO: filter or query AA transactions separately
+		pending2 := w.eth.TxPool().Pending(true)
+		// TODO: use AA-specific function to respect big nonce field
+		txs := newTransactionsByPriceAndNonce(env.signer, pending2, env.header.BaseFee)
+		if err := w.commitBatchAlexfAATransactions(env, txs, interrupt); err != nil {
+			return err
+		}
+	}
+
 	// Fill the block with all available pending transactions.
 	if len(localTxs) > 0 {
 		txs := newTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
@@ -1032,6 +1065,7 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 			return err
 		}
 	}
+
 	return nil
 }
 

@@ -24,7 +24,8 @@ func (p *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Header, 
 
 func (p *AlexfAccountAbstractionPool) Close() error {
 	//TODO implement me
-	panic("implement me")
+	//panic("implement me")
+	return nil
 }
 
 func (p *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
@@ -70,14 +71,32 @@ func (p *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, 
 }
 
 func (p *AlexfAccountAbstractionPool) add(tx *types.Transaction) (err error) {
-	p.storedTransaction = tx
+	if tx.Type() == types.ALEXF_AA_TX_TYPE {
+		p.storedTransaction = tx
+	}
 	return nil
 }
 
 func (p *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Address][]*txpool.LazyTransaction {
 	//TODO implement me
-	pending := make(map[common.Address][]*txpool.LazyTransaction)
-	return pending
+	if p.storedTransaction != nil {
+		pending := make(map[common.Address][]*txpool.LazyTransaction)
+		var lts = make([]*txpool.LazyTransaction, 1)
+		lts[0] = &txpool.LazyTransaction{
+			Pool:      p,
+			Hash:      p.storedTransaction.Hash(),
+			Tx:        p.storedTransaction,
+			Time:      p.storedTransaction.Time(),
+			GasFeeCap: p.storedTransaction.GasFeeCap(),
+			GasTipCap: p.storedTransaction.GasTipCap(),
+			Gas:       p.storedTransaction.Gas(),
+			BlobGas:   p.storedTransaction.BlobGas(),
+		}
+		pending[*p.storedTransaction.AlexfAATransactionData().Sender] = lts
+		return pending
+	} else {
+		return nil
+	}
 }
 
 func (p *AlexfAccountAbstractionPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) event.Subscription {

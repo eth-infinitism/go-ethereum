@@ -90,6 +90,16 @@ type transactionsByPriceAndNonce struct {
 	baseFee *big.Int                                     // Current base fee
 }
 
+func newAlexfAATransactionsByPriceAndNonce(signer types.Signer, txs map[common.Address][]*txpool.LazyTransaction, baseFee *big.Int) *transactionsByPriceAndNonce {
+	// Assemble and return the transaction set
+	return &transactionsByPriceAndNonce{
+		txs: txs,
+		//heads:   heads,
+		signer:  signer,
+		baseFee: baseFee,
+	}
+}
+
 // newTransactionsByPriceAndNonce creates a transaction set that can retrieve
 // price sorted transactions in a nonce-honouring way.
 //
