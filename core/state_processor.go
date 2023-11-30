@@ -105,24 +105,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyAlexfAATransactionValidationPhase() error {
-
-	return nil
-}
-
-func applyAlexfAATransactionExecutionPhase() (*types.Receipt, error) {
-
-	return nil, nil
-}
-
-// TODO: 1. This 'msg' is not relevant at all
-func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
-	evm.Reset(txContext, statedb)
-	aatx := tx.AlexfAATransactionData()
-
-	// Validation phase
-	// TODO: extract into separate reusable function and apply it separately
-
+func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, evm *vm.EVM, gp *GasPool) ([]byte, error) {
 	nonceManagerMsg := &Message{}
 	resultNonceManager, err := ApplyMessage(evm, nonceManagerMsg, gp)
 	if err != nil {
@@ -159,7 +142,7 @@ func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig,
 			GasFeeCap:         big.NewInt(875000000),
 			GasTipCap:         big.NewInt(875000000),
 			Data:              aatx.PaymasterData[20:],
-			AccessList:        tx.AccessList(),
+			AccessList:        aatx.AccessList,
 			SkipAccountChecks: true,
 			IsInnerAATxFrame:  true,
 		}
@@ -175,8 +158,10 @@ func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig,
 			return nil, errors.New("paymaster validation failed - invalid transaction")
 		}
 	}
+	return paymasterContext, nil
+}
 
-	// Execution phase
+func applyAlexfAATransactionExecutionPhase(tx *types.Transaction, paymasterContext []byte, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
 	accountExecutionMsg := &Message{}
 	// TODO: snapshot EVM - we will fall back here if postOp fails
 	// / FAILS as msg.From is 0x000 because it is read from the signature
@@ -196,7 +181,7 @@ func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig,
 	}
 
 	var root []byte
-	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: *usedGas}
+	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: 0 /**TODO: usedGas*/}
 
 	// Set the receipt logs and create the bloom filter.
 	receipt.Logs = statedb.GetLogs(tx.Hash(), blockNumber.Uint64(), blockHash)
@@ -207,6 +192,21 @@ func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig,
 		receipt.Status = types.ReceiptStatusSuccessful
 	}
 	return receipt, err
+}
+
+// TODO: remove this method - only apply "all validations - all executions"
+func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+	evm.Reset(txContext, statedb)
+	aatx := tx.AlexfAATransactionData()
+
+	// Validation phase
+	context, err := applyAlexfAATransactionValidationPhase(aatx, evm, gp)
+	if err != nil {
+		return nil, err
+	}
+
+	// Execution phase
+	return applyAlexfAATransactionExecutionPhase(tx, context, evm, statedb, gp, blockNumber, blockHash)
 }
 
 func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
