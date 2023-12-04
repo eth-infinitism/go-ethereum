@@ -1,6 +1,7 @@
 package aapool
 
 import (
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
@@ -12,45 +13,51 @@ import (
 
 // AccountAbstractionPool is the transaction pool dedicated to RIP-7560 AA transactions.
 type AlexfAccountAbstractionPool struct {
-	discoverFeed      event.Feed // Event feed to send out new tx events on pool inclusion (reorg included)
-	storedTransaction *types.Transaction
+	discoverFeed event.Feed // Event feed to send out new tx events on pool inclusion (reorg included)
+	//storedTransaction *types.Transaction
+	pending       map[common.Address][]*types.Transaction
+	pendingByHash map[common.Hash]*types.Transaction
 }
 
-func (p *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Header, reserve txpool.AddressReserver) error {
+func (pool *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Header, reserve txpool.AddressReserver) error {
+	pool.pending = make(map[common.Address][]*types.Transaction)
+	pool.pendingByHash = make(map[common.Hash]*types.Transaction)
 	//TODO implement me
 	//panic("implement me")
 	return nil
 }
 
-func (p *AlexfAccountAbstractionPool) Close() error {
+func (pool *AlexfAccountAbstractionPool) Close() error {
 	//TODO implement me
 	//panic("implement me")
 	return nil
 }
 
-func (p *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
+func (pool *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
 	//TODO implement me
 	//panic("implement me")
 	return
 }
 
-func (p *AlexfAccountAbstractionPool) SetGasTip(tip *big.Int) {
+func (pool *AlexfAccountAbstractionPool) SetGasTip(tip *big.Int) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (p *AlexfAccountAbstractionPool) Has(hash common.Hash) bool {
+func (pool *AlexfAccountAbstractionPool) Has(hash common.Hash) bool {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (p *AlexfAccountAbstractionPool) Get(hash common.Hash) *types.Transaction {
-	//TODO implement me
-	//panic("implement me")
-	return p.storedTransaction
+func (pool *AlexfAccountAbstractionPool) Get(hash common.Hash) *types.Transaction {
+	tx := pool.get(hash)
+	if tx == nil {
+		return nil
+	}
+	return tx
 }
 
-func (p *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, sync bool) []error {
+func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, sync bool) []error {
 	//TODO implement me
 	//panic("implement me")
 	var (
@@ -58,79 +65,84 @@ func (p *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, 
 		errs = make([]error, len(txs))
 	)
 	for i, tx := range txs {
-		errs[i] = p.add(tx)
+		errs[i] = pool.add(tx)
 		if errs[i] == nil {
 			adds = append(adds, tx.WithoutBlobTxSidecar())
 		}
 	}
 	if len(adds) > 0 {
-		p.discoverFeed.Send(core.NewTxsEvent{Txs: adds})
+		pool.discoverFeed.Send(core.NewTxsEvent{Txs: adds})
 		//p.insertFeed.Send(core.NewTxsEvent{Txs: adds})
 	}
 	return errs
 }
 
-func (p *AlexfAccountAbstractionPool) add(tx *types.Transaction) (err error) {
+// TODO: perform validation frame when adding a transaction to the AA mempool
+func (pool *AlexfAccountAbstractionPool) add(tx *types.Transaction) (err error) {
 	if tx.Type() == types.ALEXF_AA_TX_TYPE {
-		p.storedTransaction = tx
+		fmt.Printf("\nALEXF: Adding AA transaction to mempool %s %d\n", tx.Hash(), tx.Nonce())
+		sender := *tx.AlexfAATransactionData().Sender
+		pool.pending[sender] = append(pool.pending[sender], tx)
+		pool.pendingByHash[tx.Hash()] = tx
 	}
 	return nil
 }
 
-func (p *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Address][]*txpool.LazyTransaction {
+func (pool *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Address][]*txpool.LazyTransaction {
 	//TODO implement me
-	if p.storedTransaction != nil {
-		pending := make(map[common.Address][]*txpool.LazyTransaction)
-		var lts = make([]*txpool.LazyTransaction, 1)
-		lts[0] = &txpool.LazyTransaction{
-			Pool:      p,
-			Hash:      p.storedTransaction.Hash(),
-			Tx:        p.storedTransaction,
-			Time:      p.storedTransaction.Time(),
-			GasFeeCap: p.storedTransaction.GasFeeCap(),
-			GasTipCap: p.storedTransaction.GasTipCap(),
-			Gas:       p.storedTransaction.Gas(),
-			BlobGas:   p.storedTransaction.BlobGas(),
+	pending := make(map[common.Address][]*txpool.LazyTransaction)
+	for sender, txs := range pool.pending {
+		lts := make([]*txpool.LazyTransaction, len(txs))
+		for i, tx := range txs {
+			lts[i] = &txpool.LazyTransaction{
+				Pool:      pool,
+				Hash:      tx.Hash(),
+				Tx:        tx,
+				Time:      tx.Time(),
+				GasFeeCap: tx.GasFeeCap(),
+				GasTipCap: tx.GasTipCap(),
+				Gas:       tx.Gas(),
+				BlobGas:   tx.BlobGas(),
+			}
 		}
-		pending[*p.storedTransaction.AlexfAATransactionData().Sender] = lts
-		return pending
-	} else {
-		return nil
+		pending[sender] = lts
 	}
+	fmt.Printf("\nALEXF: Returning pending AA transaction to mempool, len= %d\n", len(pending))
+	return pending
 }
 
-func (p *AlexfAccountAbstractionPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) event.Subscription {
+func (pool *AlexfAccountAbstractionPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) event.Subscription {
 	//TODO implement me
-	return p.discoverFeed.Subscribe(ch)
+	return pool.discoverFeed.Subscribe(ch)
 }
 
-func (p *AlexfAccountAbstractionPool) Nonce(addr common.Address) uint64 {
+func (pool *AlexfAccountAbstractionPool) Nonce(addr common.Address) uint64 {
 	//TODO implement me
 	//panic("implement me")
 	return 0
 }
 
-func (p *AlexfAccountAbstractionPool) Stats() (int, int) {
+func (pool *AlexfAccountAbstractionPool) Stats() (int, int) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (p *AlexfAccountAbstractionPool) Content() (map[common.Address][]*types.Transaction, map[common.Address][]*types.Transaction) {
+func (pool *AlexfAccountAbstractionPool) Content() (map[common.Address][]*types.Transaction, map[common.Address][]*types.Transaction) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (p *AlexfAccountAbstractionPool) ContentFrom(addr common.Address) ([]*types.Transaction, []*types.Transaction) {
+func (pool *AlexfAccountAbstractionPool) ContentFrom(addr common.Address) ([]*types.Transaction, []*types.Transaction) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (p *AlexfAccountAbstractionPool) Locals() []common.Address {
+func (pool *AlexfAccountAbstractionPool) Locals() []common.Address {
 	//TODO implement me
 	return []common.Address{}
 }
 
-func (p *AlexfAccountAbstractionPool) Status(hash common.Hash) txpool.TxStatus {
+func (pool *AlexfAccountAbstractionPool) Status(hash common.Hash) txpool.TxStatus {
 	//TODO implement me
 	panic("implement me")
 }
@@ -153,6 +165,11 @@ func New(config blobpool.Config, chain blobpool.BlockChain) *AlexfAccountAbstrac
 }
 
 // Filter returns whether the given transaction can be consumed by the blob pool.
-func (p *AlexfAccountAbstractionPool) Filter(tx *types.Transaction) bool {
+func (pool *AlexfAccountAbstractionPool) Filter(tx *types.Transaction) bool {
 	return tx.Type() == types.ALEXF_AA_TX_TYPE
+}
+
+// get returns a transaction if it is contained in the pool and nil otherwise.
+func (pool *AlexfAccountAbstractionPool) get(hash common.Hash) *types.Transaction {
+	return pool.pendingByHash[hash]
 }

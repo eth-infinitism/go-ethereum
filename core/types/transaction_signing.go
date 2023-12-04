@@ -338,7 +338,7 @@ func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
 		V = new(big.Int).Add(V, big.NewInt(27))
 	case ALEXF_AA_TX_TYPE:
 		// TODO: ALEXF: read "sender" from the AA transaction struct
-		return common.Address{}, nil
+		return *tx.AlexfAATransactionData().Sender, nil
 	default:
 		return common.Address{}, ErrTxTypeNotSupported
 	}

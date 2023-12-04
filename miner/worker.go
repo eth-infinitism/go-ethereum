@@ -816,18 +816,40 @@ func (w *worker) applyTransaction(env *environment, tx *types.Transaction) (*typ
 }
 
 func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
+	// todo: maybe it is not optimal to allocate space for all transactions in advance?
+	// todo 2: keep structure with gas used info and paymaster context
+	verifiedAATransactions := make([]types.Transaction, 0)
+
+	i := 0
 	for {
 		// Retrieve the next transaction and abort if all done.
 		ltx := txs.Peek()
+		if ltx == nil {
+			break
+		}
+
 		tx := ltx.Resolve()
 		if tx.Type() != types.ALEXF_AA_TX_TYPE {
 			log.Error("ALEXF: skipping a legacy transaction in 'commitBatchAlexfAATransactions' function")
 			txs.Pop()
-			return nil
+			continue
 		}
-		log.Error("ALEXF: including transaction")
-		return nil
+		log.Error("ALEXF: applying transaction validation phase")
+		log.Error(tx.Hash().Hex())
+		txs.Shift()
+		_, err := core.ApplyAlexfAATransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
+		if err != nil {
+			return err
+		}
+		// todo: keep 'paymaster context'
+		verifiedAATransactions = append(verifiedAATransactions, *tx)
+		i++
 	}
+	for _, tx := range verifiedAATransactions {
+		log.Error("ALEXF: applying transaction execution phase")
+		log.Error(tx.Hash().Hex())
+	}
+	return nil
 }
 
 func (w *worker) commitTransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
