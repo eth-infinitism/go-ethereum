@@ -778,19 +778,6 @@ func (w *worker) commitBlobTransaction(env *environment, tx *types.Transaction) 
 	return receipt.Logs, nil
 }
 
-func (w *worker) applyAlexfAATransaction(env *environment, tx *types.Transaction) (*types.Receipt, error) {
-	var (
-		snap = env.state.Snapshot()
-		gp   = env.gasPool.Gas()
-	)
-	receipt, err := core.ApplyAlexfAATransaction(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
-	if err != nil {
-		env.state.RevertToSnapshot(snap)
-		env.gasPool.SetGas(gp)
-	}
-	return receipt, err
-}
-
 // applyTransaction runs the transaction. If execution fails, state and gas pool are reverted.
 func (w *worker) applyTransaction(env *environment, tx *types.Transaction) (*types.Receipt, error) {
 	var (

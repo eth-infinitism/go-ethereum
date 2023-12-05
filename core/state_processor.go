@@ -278,21 +278,6 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 	return receipt, err
 }
 
-// TODO: remove this method - only apply "all validations - all executions"
-func applyAlexfAATransaction(txContext vm.TxContext, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
-	evm.Reset(txContext, statedb)
-	aatx := tx.AlexfAATransactionData()
-
-	// Validation phase
-	context, err := applyAlexfAATransactionValidationPhase(aatx, evm, gp)
-	if err != nil {
-		return nil, err
-	}
-
-	// Execution phase
-	return applyAlexfAATransactionExecutionPhase(tx, context, evm, statedb, gp, blockNumber, blockHash)
-}
-
 func applyTransaction(msg *Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
@@ -403,21 +388,6 @@ func ApplyAlexfAATransactionExecutionPhase(config *params.ChainConfig, vpr *Vali
 	}
 
 	return applyAlexfAATransactionExecutionPhase(vpr, vmenv, statedb, gp, blockNumber, blockHash)
-}
-
-// ApplyAlexfAATransaction
-// TODO
-func ApplyAlexfAATransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
-	if err != nil {
-		return nil, err
-	}
-	msg.From = *tx.AlexfAATransactionData().Sender
-	// Create a new context to be used in the EVM environment
-	blockContext := NewEVMBlockContext(header, bc, author)
-	txContext := NewEVMTxContext(msg)
-	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
-	return applyAlexfAATransaction(txContext, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }
 
 // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root
