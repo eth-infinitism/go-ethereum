@@ -80,8 +80,31 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	if beaconRoot := block.BeaconRoot(); beaconRoot != nil {
 		ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
 	}
+
+	// TODO: this is not correct in general as AA transactions can be anywhere in a block
+	verifiedAATransactions := make([]*ValidationPhaseResult, 0)
+	for _, tx := range block.Transactions() {
+		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+			vpr, err := ApplyAlexfAATransactionValidationPhase(p.config, p.bc, &header.Coinbase, gp, statedb, header, tx, cfg)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			verifiedAATransactions = append(verifiedAATransactions, vpr)
+		}
+	}
+	for _, vpr := range verifiedAATransactions {
+		receipt, err := ApplyAlexfAATransactionExecutionPhase(p.config, vpr, blockNumber, blockHash, p.bc, &header.Coinbase, gp, statedb, header, cfg)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		receipts = append(receipts, receipt)
+		allLogs = append(allLogs, receipt.Logs...)
+	}
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
+		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+			continue
+		}
 		msg, err := TransactionToMessage(tx, signer, header.BaseFee)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
@@ -105,34 +128,61 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, evm *vm.EVM, gp *GasPool) ([]byte, error) {
-	nonceManagerMsg := &Message{}
+func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, evm *vm.EVM, gp *GasPool) (*ValidationPhaseResult, error) {
+	nonceManagerMsg := &Message{
+		From:              *aatx.Sender,
+		To:                &common.Address{},
+		Value:             big.NewInt(0),
+		GasLimit:          100000,
+		GasPrice:          big.NewInt(875000000),
+		GasFeeCap:         big.NewInt(875000000),
+		GasTipCap:         big.NewInt(875000000),
+		Data:              aatx.PaymasterData[20:],
+		AccessList:        aatx.AccessList,
+		SkipAccountChecks: true,
+		IsInnerAATxFrame:  true,
+	}
 	resultNonceManager, err := ApplyMessage(evm, nonceManagerMsg, gp)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Printf("ALEXF AA resultNonceManager: %s", hex.EncodeToString(resultNonceManager.ReturnData))
 
-	var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
-	if (deployerAddress.Cmp(common.Address{}) != 0) {
-		deployerMsg := &Message{}
-		resultDeployer, err := ApplyMessage(evm, deployerMsg, gp)
-		if err != nil {
-			return nil, err
+	if len(aatx.DeployerData) >= 20 {
+		var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
+		if (deployerAddress.Cmp(common.Address{}) != 0) {
+			deployerMsg := &Message{}
+			resultDeployer, err := ApplyMessage(evm, deployerMsg, gp)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Printf("ALEXF AA resultDeployer: %s", hex.EncodeToString(resultDeployer.ReturnData))
 		}
-		fmt.Printf("ALEXF AA resultDeployer: %s", hex.EncodeToString(resultDeployer.ReturnData))
 	}
 
-	accountValidationMsg := &Message{}
+	validateTransactionData := make([]byte, 0)
+	accountValidationMsg := &Message{
+		From:              *aatx.Sender,
+		To:                aatx.Sender,
+		Value:             big.NewInt(0),
+		GasLimit:          100000,
+		GasPrice:          big.NewInt(875000000),
+		GasFeeCap:         big.NewInt(875000000),
+		GasTipCap:         big.NewInt(875000000),
+		Data:              validateTransactionData,
+		AccessList:        aatx.AccessList,
+		SkipAccountChecks: true,
+		IsInnerAATxFrame:  true,
+	}
 	resultAccountValidation, err := ApplyMessage(evm, accountValidationMsg, gp)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("ALEXF AA resultAccountValidation: %s", hex.EncodeToString(resultAccountValidation.ReturnData))
+	fmt.Printf("\nALEXF AA resultAccountValidation: %s\n", hex.EncodeToString(resultAccountValidation.ReturnData))
 
-	var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 	var paymasterContext []byte
-	if (paymasterAddress.Cmp(common.Address{}) != 0) {
+	if len(aatx.PaymasterData) >= 20 {
+		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 		paymasterMsg := &Message{
 			From:              *aatx.Sender,
 			To:                &paymasterAddress,
@@ -158,11 +208,33 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			return nil, errors.New("paymaster validation failed - invalid transaction")
 		}
 	}
-	return paymasterContext, nil
+
+	vpr := &ValidationPhaseResult{
+		paymasterContext:  paymasterContext,
+		validationGasUsed: 0,
+		paymasterGasUsed:  0,
+	}
+
+	return vpr, nil
 }
 
-func applyAlexfAATransactionExecutionPhase(tx *types.Transaction, paymasterContext []byte, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
-	accountExecutionMsg := &Message{}
+func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
+	aatx := vpr.Tx.AlexfAATransactionData()
+
+	executionData := make([]byte, 0)
+	accountExecutionMsg := &Message{
+		From:              *aatx.Sender,
+		To:                aatx.Sender,
+		Value:             big.NewInt(0),
+		GasLimit:          100000,
+		GasPrice:          big.NewInt(875000000),
+		GasFeeCap:         big.NewInt(875000000),
+		GasTipCap:         big.NewInt(875000000),
+		Data:              executionData,
+		AccessList:        aatx.AccessList,
+		SkipAccountChecks: true,
+		IsInnerAATxFrame:  true,
+	}
 	// TODO: snapshot EVM - we will fall back here if postOp fails
 	// / FAILS as msg.From is 0x000 because it is read from the signature
 	// Apply the execution call frame transaction to the current state
@@ -171,8 +243,20 @@ func applyAlexfAATransactionExecutionPhase(tx *types.Transaction, paymasterConte
 		return nil, err
 	}
 
-	if len(paymasterContext) != 0 {
-		paymasterPostOpMsg := &Message{}
+	if len(vpr.paymasterContext) != 0 {
+		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
+		paymasterPostOpMsg := &Message{
+			From:              *aatx.Sender,
+			To:                &paymasterAddress,
+			Value:             big.NewInt(0),
+			GasLimit:          100000,
+			GasPrice:          big.NewInt(875000000),
+			GasFeeCap:         big.NewInt(875000000),
+			GasTipCap:         big.NewInt(875000000),
+			Data:              vpr.paymasterContext, // todo: wrap with 'postTransaction()'
+			AccessList:        aatx.AccessList,
+			SkipAccountChecks: true,
+			IsInnerAATxFrame:  true}
 		resultPostOp, err := ApplyMessage(evm, paymasterPostOpMsg, gp)
 		if err != nil {
 			return nil, err
@@ -181,10 +265,10 @@ func applyAlexfAATransactionExecutionPhase(tx *types.Transaction, paymasterConte
 	}
 
 	var root []byte
-	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: 0 /**TODO: usedGas*/}
+	receipt := &types.Receipt{Type: vpr.Tx.Type(), PostState: root, CumulativeGasUsed: 0 /**TODO: usedGas*/}
 
 	// Set the receipt logs and create the bloom filter.
-	receipt.Logs = statedb.GetLogs(tx.Hash(), blockNumber.Uint64(), blockHash)
+	receipt.Logs = statedb.GetLogs(vpr.Tx.Hash(), blockNumber.Uint64(), blockHash)
 
 	if result.Failed() {
 		receipt.Status = types.ReceiptStatusFailed
@@ -275,12 +359,50 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	return applyTransaction(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }
 
-func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	return nil, nil
+type ValidationPhaseResult struct {
+	Tx                *types.Transaction
+	paymasterContext  []byte
+	validationGasUsed uint64
+	paymasterGasUsed  uint64
 }
 
-func ApplyAlexfAATransactionExecutionPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	return nil, nil
+func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
+	log.Error("ALEXF: applying transaction validation phase")
+	log.Error(tx.Hash().Hex())
+	aatx := tx.AlexfAATransactionData()
+
+	blockContext := NewEVMBlockContext(header, bc, author)
+	message, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+	txContext := NewEVMTxContext(message)
+	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
+
+	// Validation phase
+	vpr, err := applyAlexfAATransactionValidationPhase(aatx, vmenv, gp)
+	if err != nil {
+		return nil, err
+	}
+
+	vpr.Tx = tx
+
+	return vpr, nil
+}
+
+func ApplyAlexfAATransactionExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, blockNumber *big.Int, blockHash common.Hash, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+	log.Error("ALEXF: applying transaction execution phase")
+	log.Error(vpr.Tx.Hash().Hex())
+
+	// todo: this code is duplicated with validation phase and maybe we need to keep something instead of recreating
+	blockContext := NewEVMBlockContext(header, bc, author)
+	message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+	txContext := NewEVMTxContext(message)
+	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
+	if err != nil {
+		return nil, err
+	}
+
+	return applyAlexfAATransactionExecutionPhase(vpr, vmenv, statedb, gp, blockNumber, blockHash)
 }
 
 // ApplyAlexfAATransaction

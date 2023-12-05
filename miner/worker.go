@@ -745,16 +745,6 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction) ([]*
 	if tx.Type() == types.BlobTxType {
 		return w.commitBlobTransaction(env, tx)
 	}
-	if tx.Type() == types.ALEXF_AA_TX_TYPE {
-		println("ALEXF commiting AA transaction")
-		receipt, err := w.applyAlexfAATransaction(env, tx)
-		if err != nil {
-			return nil, err
-		}
-		env.txs = append(env.txs, tx)
-		env.receipts = append(env.receipts, receipt)
-		return receipt.Logs, nil
-	}
 	receipt, err := w.applyTransaction(env, tx)
 	if err != nil {
 		return nil, err
@@ -816,9 +806,16 @@ func (w *worker) applyTransaction(env *environment, tx *types.Transaction) (*typ
 }
 
 func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
+
+	// todo: copied over to fix crash, probably should do it once
+	gasLimit := env.header.GasLimit
+	if env.gasPool == nil {
+		env.gasPool = new(core.GasPool).AddGas(gasLimit)
+	}
+
 	// todo: maybe it is not optimal to allocate space for all transactions in advance?
 	// todo 2: keep structure with gas used info and paymaster context
-	verifiedAATransactions := make([]types.Transaction, 0)
+	verifiedAATransactions := make([]*core.ValidationPhaseResult, 0)
 
 	i := 0
 	for {
@@ -834,20 +831,22 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 			txs.Pop()
 			continue
 		}
-		log.Error("ALEXF: applying transaction validation phase")
-		log.Error(tx.Hash().Hex())
 		txs.Shift()
-		_, err := core.ApplyAlexfAATransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
+		vpr, err := core.ApplyAlexfAATransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
 		if err != nil {
 			return err
 		}
 		// todo: keep 'paymaster context'
-		verifiedAATransactions = append(verifiedAATransactions, *tx)
+		verifiedAATransactions = append(verifiedAATransactions, vpr)
 		i++
 	}
-	for _, tx := range verifiedAATransactions {
-		log.Error("ALEXF: applying transaction execution phase")
-		log.Error(tx.Hash().Hex())
+	for _, vpr := range verifiedAATransactions {
+		receipt, err := core.ApplyAlexfAATransactionExecutionPhase(w.chainConfig, vpr, env.header.Number, env.header.Hash(), w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
+		if err != nil {
+			return err
+		}
+		env.txs = append(env.txs, vpr.Tx)
+		env.receipts = append(env.receipts, receipt)
 	}
 	return nil
 }

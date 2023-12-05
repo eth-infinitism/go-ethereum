@@ -321,7 +321,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			BigNonce:      (*big.Int)(args.BigNonce),
 		}
 		data = &aatx
-		fmt.Printf("ALEXF Type-4 transaction created:\n"+
+		fmt.Printf("\nALEXF Type-4 transaction created:\n"+
 			"Sender: %s\n"+
 			"Target: %s\n"+
 			"Signature: %s\n"+

@@ -206,6 +206,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(DynamicFeeTx)
 	case BlobTxType:
 		inner = new(BlobTx)
+	case ALEXF_AA_TX_TYPE:
+		inner = new(AlexfAccountAbstractionTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}

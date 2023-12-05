@@ -45,7 +45,7 @@ type AlexfAccountAbstractionTx struct {
 	BigNonce      *big.Int // AA nonce is 256 bits wide
 
 	// removed fields
-	//Nonce      uint64
+	Nonce uint64
 	// Signature values
 	// V *big.Int `json:"v" gencodec:"required"`
 	// R *big.Int `json:"r" gencodec:"required"`
