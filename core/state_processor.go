@@ -137,10 +137,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool) (*ValidationPhaseResult, error) {
 	jsondata := `[
-	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
+	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]},
+	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
 	]`
 
 	validateTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
+	if err != nil {
+		return nil, err
+	}
 
 	entryPoint := common.HexToAddress("0x7560000000000000000000000000000000007560")
 	println("Alexf EP:", entryPoint.String())
@@ -164,7 +168,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		IsInnerAATxFrame:  true,
 	}
 	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gp)
-	if err != nil { // failed due to EntryPoint address not having gas money...
+	if err != nil {
 		return nil, err
 	}
 	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
@@ -183,10 +187,6 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	txAbiEncoding, err := aatx.AbiEncode()
 	validateTransactionData, err := validateTransactionAbi.Pack("validateTransaction", big.NewInt(0), thash, txAbiEncoding)
-	// selector: bf45c166
-	// params:  uint256 version, bytes32 txHash, bytes transaction
-	//validateTransactionData, err := common.ParseHexOrString("0xbf45c16600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
-	//validateTransactionData := make([]byte, 0)
 	accountValidationMsg := &Message{
 		From:              *aatx.Sender,
 		To:                aatx.Sender,
@@ -208,11 +208,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	var paymasterContext []byte
 	if len(aatx.PaymasterData) >= 20 {
-		//0000000000000000000000000000000000000000000000000000000000000000
-		// selector: 0xe0e6183a
-		// params:  uint256 version, bytes32 txHash, bytes transaction
-		//data, err := common.ParseHexOrString("0xe0e6183a")
-		data, err := common.ParseHexOrString("0xe0e6183a00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
+		data, err := validateTransactionAbi.Pack("validatePaymasterTransaction", big.NewInt(0), thash, txAbiEncoding)
+
 		if err != nil {
 			return nil, err
 		}
