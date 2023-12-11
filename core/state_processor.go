@@ -83,8 +83,9 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 
 	// TODO: this is not correct in general as AA transactions can be anywhere in a block
 	verifiedAATransactions := make([]*ValidationPhaseResult, 0)
-	for _, tx := range block.Transactions() {
+	for i, tx := range block.Transactions() {
 		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+			statedb.SetTxContext(tx.Hash(), i) // todo: 'i' is not correct as well if other transactions are in a block!
 			vpr, err := ApplyAlexfAATransactionValidationPhase(p.config, p.bc, &header.Coinbase, gp, statedb, header, tx, cfg)
 			if err != nil {
 				return nil, nil, 0, err
