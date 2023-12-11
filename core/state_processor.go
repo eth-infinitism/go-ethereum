@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
@@ -30,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"math/big"
+	"strings"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -133,7 +135,13 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, evm *vm.EVM, gp *GasPool) (*ValidationPhaseResult, error) {
+func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool) (*ValidationPhaseResult, error) {
+	jsondata := `[
+	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
+	]`
+
+	validateTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
+
 	entryPoint := &common.Address{}
 	entryPoint[0] = 117
 	entryPoint[1] = 96
@@ -177,9 +185,11 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		}
 	}
 
+	txAbiEncoding, err := aatx.AbiEncode()
+	validateTransactionData, err := validateTransactionAbi.Pack("validateTransaction", big.NewInt(0), thash, txAbiEncoding)
 	// selector: bf45c166
 	// params:  uint256 version, bytes32 txHash, bytes transaction
-	validateTransactionData, err := common.ParseHexOrString("0xbf45c16600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
+	//validateTransactionData, err := common.ParseHexOrString("0xbf45c16600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
 	//validateTransactionData := make([]byte, 0)
 	accountValidationMsg := &Message{
 		From:              *aatx.Sender,
@@ -243,6 +253,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	vpr := &ValidationPhaseResult{
 		paymasterContext:  paymasterContext,
+		Thash:             thash,
 		validationGasUsed: 0,
 		paymasterGasUsed:  0,
 	}
@@ -378,6 +389,7 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 
 type ValidationPhaseResult struct {
 	Tx                *types.Transaction
+	Thash             common.Hash
 	paymasterContext  []byte
 	validationGasUsed uint64
 	paymasterGasUsed  uint64
@@ -385,7 +397,8 @@ type ValidationPhaseResult struct {
 
 func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
 	log.Error("ALEXF: applying transaction validation phase")
-	log.Error(tx.Hash().Hex())
+	thash := tx.Hash()
+	log.Error(thash.Hex())
 	aatx := tx.AlexfAATransactionData()
 
 	blockContext := NewEVMBlockContext(header, bc, author)
@@ -395,7 +408,7 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
 
 	// Validation phase
-	vpr, err := applyAlexfAATransactionValidationPhase(aatx, vmenv, gp)
+	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, vmenv, gp)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ package types
 
 import (
 	"bytes"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -26,14 +27,16 @@ import (
 
 // AlexfAccountAbstractionTx represents an RIP-7560 transaction.
 type AlexfAccountAbstractionTx struct {
+	// overlapping fields
 	ChainID    *big.Int
 	GasTipCap  *big.Int // a.k.a. maxPriorityFeePerGas
 	GasFeeCap  *big.Int // a.k.a. maxFeePerGas
 	Gas        uint64
-	To         *common.Address `rlp:"nil"` // nil means contract creation
+	To         *common.Address
 	Value      *big.Int
 	Data       []byte
 	AccessList AccessList
+
 	// extra fields
 	Sender        *common.Address
 	Signature     []byte
@@ -142,4 +145,73 @@ func (tx *AlexfAccountAbstractionTx) encode(b *bytes.Buffer) error {
 
 func (tx *AlexfAccountAbstractionTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
+}
+
+// TransactionType4 an equivalent of a solidity struct only used to encode the 'transaction' parameter
+type TransactionType4 struct {
+	Sender               common.Address
+	Nonce                *big.Int
+	ValidationGasLimit   *big.Int
+	PaymasterGasLimit    *big.Int
+	CallGasLimit         *big.Int
+	MaxFeePerGas         *big.Int
+	MaxPriorityFeePerGas *big.Int
+	BuilderFee           *big.Int
+	PaymasterData        []byte
+	DeployerData         []byte
+	CallData             []byte
+	Signature            []byte
+}
+
+func (tx *AlexfAccountAbstractionTx) AbiEncode() ([]byte, error) {
+
+	//struct TransactionType4 {
+	//	address sender;
+	//	uint256 nonce;
+	//	uint256 validationGasLimit;
+	//	uint256 paymasterGasLimit;
+	//	uint256 callGasLimit;
+	//	uint256 maxFeePerGas;
+	//	uint256 maxPriorityFeePerGas;
+	//	uint256 builderFee;
+	//	bytes paymasterData;
+	//	bytes deployerData;
+	//	bytes callData;
+	//	bytes signature;
+	//}
+
+	structThing, _ := abi.NewType("tuple", "struct thing", []abi.ArgumentMarshaling{
+		{Name: "sender", Type: "address"},
+		{Name: "nonce", Type: "uint256"},
+		{Name: "validationGasLimit", Type: "uint256"},
+		{Name: "paymasterGasLimit", Type: "uint256"},
+		{Name: "callGasLimit", Type: "uint256"},
+		{Name: "maxFeePerGas", Type: "uint256"},
+		{Name: "maxPriorityFeePerGas", Type: "uint256"},
+		{Name: "builderFee", Type: "uint256"},
+		{Name: "paymasterData", Type: "bytes"},
+		{Name: "deployerData", Type: "bytes"},
+		{Name: "callData", Type: "bytes"},
+		{Name: "signature", Type: "bytes"},
+	})
+
+	args := abi.Arguments{
+		{Type: structThing, Name: "param_one"},
+	}
+	record := &TransactionType4{
+		common.HexToAddress("0x0002"),
+		big.NewInt(2e18),
+		big.NewInt(2e18),
+		big.NewInt(2e18),
+		big.NewInt(2e18),
+		big.NewInt(2e18),
+		big.NewInt(2e18),
+		big.NewInt(2e18),
+		[]byte{255},
+		[]byte{254},
+		[]byte{254},
+		[]byte{252},
+	}
+	packed, err := args.Pack(&record)
+	return packed, err
 }
