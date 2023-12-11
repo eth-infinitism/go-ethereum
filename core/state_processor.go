@@ -142,11 +142,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	validateTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
 
-	entryPoint := &common.Address{}
-	entryPoint[0] = 117
-	entryPoint[1] = 96
-	entryPoint[18] = 117
-	entryPoint[19] = 96
+	entryPoint := common.HexToAddress("0x7560000000000000000000000000000000007560")
 	println("Alexf EP:", entryPoint.String())
 	// TODO: pre-deployed Nonce Manager; this is just a way to pass it in
 	var nonceManager common.Address = [20]byte(aatx.PaymasterData[20:40])
@@ -155,7 +151,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	nonceManagerData = append(nonceManagerData[:], aatx.Sender.Bytes()...)
 	nonceManagerData = append(nonceManagerData[:], key...)
 	nonceManagerMsg := &Message{
-		From:              *entryPoint,
+		From:              entryPoint,
 		To:                &nonceManager,
 		Value:             big.NewInt(0),
 		GasLimit:          100000,
