@@ -58,28 +58,24 @@ type AlexfAccountAbstractionTx struct {
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *AlexfAccountAbstractionTx) copy() TxData {
 	cpy := &AlexfAccountAbstractionTx{
-		BigNonce: tx.BigNonce,
-		To:       copyAddressPtr(tx.To),
-		Data:     common.CopyBytes(tx.Data),
-		Gas:      tx.Gas,
+		To:   copyAddressPtr(tx.To),
+		Data: common.CopyBytes(tx.Data),
+		Gas:  tx.Gas,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
 		Value:      new(big.Int),
 		ChainID:    new(big.Int),
 		GasTipCap:  new(big.Int),
 		GasFeeCap:  new(big.Int),
-		//V:          new(big.Int),
-		//R:          new(big.Int),
-		//S:          new(big.Int),
 
-		Sender: copyAddressPtr(tx.Sender),
-		//Signature:      []byte
+		BigNonce:      new(big.Int),
+		Sender:        copyAddressPtr(tx.Sender),
+		Signature:     common.CopyBytes(tx.Signature),
 		PaymasterData: common.CopyBytes(tx.PaymasterData),
-		//DeployerData:   []byte
-		//BuilderFee:     *hexutil.Big
-		//ValidationGas:  uint64
-		//PaymasterGas:   uint64
-		//BigNonce:       *hexutil.Big // AA nonce is 256 bits wide
+		DeployerData:  common.CopyBytes(tx.DeployerData),
+		BuilderFee:    new(big.Int),
+		ValidationGas: tx.ValidationGas,
+		PaymasterGas:  tx.PaymasterGas,
 	}
 	copy(cpy.AccessList, tx.AccessList)
 	if tx.Value != nil {
@@ -94,15 +90,12 @@ func (tx *AlexfAccountAbstractionTx) copy() TxData {
 	if tx.GasFeeCap != nil {
 		cpy.GasFeeCap.Set(tx.GasFeeCap)
 	}
-	//if tx.V != nil {
-	//	cpy.V.Set(tx.V)
-	//}
-	//if tx.R != nil {
-	//	cpy.R.Set(tx.R)
-	//}
-	//if tx.S != nil {
-	//	cpy.S.Set(tx.S)
-	//}
+	if tx.BigNonce != nil {
+		cpy.BigNonce.Set(tx.BigNonce)
+	}
+	if tx.BuilderFee != nil {
+		cpy.BuilderFee.Set(tx.BuilderFee)
+	}
 	return cpy
 }
 
@@ -199,18 +192,18 @@ func (tx *AlexfAccountAbstractionTx) AbiEncode() ([]byte, error) {
 		{Type: structThing, Name: "param_one"},
 	}
 	record := &TransactionType4{
-		common.HexToAddress("0x0002"),
-		big.NewInt(2e18),
-		big.NewInt(2e18),
-		big.NewInt(2e18),
-		big.NewInt(2e18),
-		big.NewInt(2e18),
-		big.NewInt(2e18),
-		big.NewInt(2e18),
-		[]byte{255},
-		[]byte{254},
-		[]byte{254},
-		[]byte{252},
+		Sender:               *tx.Sender,
+		Nonce:                tx.BigNonce,
+		ValidationGasLimit:   big.NewInt(int64(tx.ValidationGas)), // todo: awkward uint64->int64 conversions here, why?
+		PaymasterGasLimit:    big.NewInt(int64(tx.PaymasterGas)),
+		CallGasLimit:         big.NewInt(int64(tx.Gas)),
+		MaxFeePerGas:         tx.GasFeeCap,
+		MaxPriorityFeePerGas: tx.GasTipCap,
+		BuilderFee:           tx.BuilderFee,
+		PaymasterData:        tx.PaymasterData,
+		DeployerData:         tx.DeployerData,
+		CallData:             tx.Data,
+		Signature:            tx.Signature,
 	}
 	packed, err := args.Pack(&record)
 	return packed, err

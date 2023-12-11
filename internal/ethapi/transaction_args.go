@@ -85,6 +85,11 @@ func (args *TransactionArgs) data() []byte {
 	return nil
 }
 
+func (args *TransactionArgs) setAATxDefaults(ctx context.Context, b Backend) error {
+	// TODO: implement and call it
+	return nil
+}
+
 // setDefaults fills in default values for unspecified tx fields.
 func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if err := args.setFeeDefaults(ctx, b); err != nil {
@@ -300,7 +305,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		var aatx types.AlexfAccountAbstractionTx = types.AlexfAccountAbstractionTx{
+		aatx := types.AlexfAccountAbstractionTx{
 			To:      args.To,
 			ChainID: (*big.Int)(args.ChainID),
 			//Nonce:      (*big.Int)(args.Nonce),
