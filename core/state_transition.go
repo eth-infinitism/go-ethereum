@@ -186,6 +186,10 @@ func ApplyMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, err
 	return NewStateTransition(evm, msg, gp).TransitionDb()
 }
 
+func ApplyAATxMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, error) {
+	return NewAATxStateTransition(evm, msg, gp).TransitionDb()
+}
+
 // StateTransition represents a state transition.
 //
 // == The State Transitioning Model
@@ -215,6 +219,7 @@ type StateTransition struct {
 	initialGas   uint64
 	state        vm.StateDB
 	evm          *vm.EVM
+	isInnerAATxFrame bool
 }
 
 // NewStateTransition initialises and returns a new state transition object.
@@ -224,6 +229,17 @@ func NewStateTransition(evm *vm.EVM, msg *Message, gp *GasPool) *StateTransition
 		evm:   evm,
 		msg:   msg,
 		state: evm.StateDB,
+	}
+}
+
+// NewAATxStateTransition initialises and returns a new state transition object.
+func NewAATxStateTransition(evm *vm.EVM, msg *Message, gp *GasPool) *StateTransition {
+	return &StateTransition{
+		gp:               gp,
+		evm:              evm,
+		msg:              msg,
+		state:            evm.StateDB,
+		isInnerAATxFrame: true,
 	}
 }
 
@@ -343,6 +359,12 @@ func (st *StateTransition) preCheck() error {
 				}
 			}
 		}
+	}
+	// ALEXF: no need to "buy gus" for individual AA transaction frames, there is a single shared gas pre-charge
+	if st.isInnerAATxFrame {
+		st.gasRemaining += st.msg.GasLimit
+		st.initialGas = st.msg.GasLimit
+		return nil
 	}
 	return st.buyGas()
 }

@@ -828,6 +828,7 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 		i++
 	}
 	for _, vpr := range verifiedAATransactions {
+		env.state.SetTxContext(vpr.Tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
 		receipt, err := core.ApplyAlexfAATransactionExecutionPhase(w.chainConfig, vpr, env.header.Number, env.header.Hash(), w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
 		if err != nil {
 			return err

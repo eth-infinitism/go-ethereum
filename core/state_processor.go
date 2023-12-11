@@ -92,7 +92,11 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			verifiedAATransactions = append(verifiedAATransactions, vpr)
 		}
 	}
-	for _, vpr := range verifiedAATransactions {
+	for i, vpr := range verifiedAATransactions {
+
+		// TODO: this will miss all validation phase events - pass in 'vpr'
+		statedb.SetTxContext(vpr.Tx.Hash(), i)
+
 		receipt, err := ApplyAlexfAATransactionExecutionPhase(p.config, vpr, blockNumber, blockHash, p.bc, &header.Coinbase, gp, statedb, header, cfg)
 		if err != nil {
 			return nil, nil, 0, err
@@ -129,30 +133,42 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 }
 
 func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, evm *vm.EVM, gp *GasPool) (*ValidationPhaseResult, error) {
+	entryPoint := &common.Address{}
+	entryPoint[0] = 117
+	entryPoint[1] = 96
+	entryPoint[18] = 117
+	entryPoint[19] = 96
+	println("Alexf EP:", entryPoint.String())
+	// TODO: pre-deployed Nonce Manager; this is just a way to pass it in
+	var nonceManager common.Address = [20]byte(aatx.PaymasterData[20:40])
+	nonceManagerData := make([]byte, 0)
+	key := make([]byte, 40) // todo: also nonce
+	nonceManagerData = append(nonceManagerData[:], aatx.Sender.Bytes()...)
+	nonceManagerData = append(nonceManagerData[:], key...)
 	nonceManagerMsg := &Message{
-		From:              *aatx.Sender,
-		To:                &common.Address{},
+		From:              *entryPoint,
+		To:                &nonceManager,
 		Value:             big.NewInt(0),
 		GasLimit:          100000,
 		GasPrice:          big.NewInt(875000000),
 		GasFeeCap:         big.NewInt(875000000),
 		GasTipCap:         big.NewInt(875000000),
-		Data:              aatx.PaymasterData[20:],
+		Data:              nonceManagerData,
 		AccessList:        aatx.AccessList,
 		SkipAccountChecks: true,
 		IsInnerAATxFrame:  true,
 	}
-	resultNonceManager, err := ApplyMessage(evm, nonceManagerMsg, gp)
-	if err != nil {
+	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gp)
+	if err != nil { // failed due to EntryPoint address not having gas money...
 		return nil, err
 	}
-	fmt.Printf("ALEXF AA resultNonceManager: %s", hex.EncodeToString(resultNonceManager.ReturnData))
+	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
 
 	if len(aatx.DeployerData) >= 20 {
 		var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
 		if (deployerAddress.Cmp(common.Address{}) != 0) {
 			deployerMsg := &Message{}
-			resultDeployer, err := ApplyMessage(evm, deployerMsg, gp)
+			resultDeployer, err := ApplyAATxMessage(evm, deployerMsg, gp)
 			if err != nil {
 				return nil, err
 			}
@@ -160,7 +176,10 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		}
 	}
 
-	validateTransactionData := make([]byte, 0)
+	// selector: bf45c166
+	// params:  uint256 version, bytes32 txHash, bytes transaction
+	validateTransactionData, err := common.ParseHexOrString("0xbf45c16600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
+	//validateTransactionData := make([]byte, 0)
 	accountValidationMsg := &Message{
 		From:              *aatx.Sender,
 		To:                aatx.Sender,
@@ -174,7 +193,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		SkipAccountChecks: true,
 		IsInnerAATxFrame:  true,
 	}
-	resultAccountValidation, err := ApplyMessage(evm, accountValidationMsg, gp)
+	resultAccountValidation, err := ApplyAATxMessage(evm, accountValidationMsg, gp)
 	if err != nil {
 		return nil, err
 	}
@@ -182,23 +201,33 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	var paymasterContext []byte
 	if len(aatx.PaymasterData) >= 20 {
+		//0000000000000000000000000000000000000000000000000000000000000000
+		// selector: 0xe0e6183a
+		// params:  uint256 version, bytes32 txHash, bytes transaction
+		//data, err := common.ParseHexOrString("0xe0e6183a")
+		data, err := common.ParseHexOrString("0xe0e6183a00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
+		if err != nil {
+			return nil, err
+		}
+
 		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 		paymasterMsg := &Message{
-			From:              *aatx.Sender,
-			To:                &paymasterAddress,
-			Value:             big.NewInt(0),
-			GasLimit:          100000,
-			GasPrice:          big.NewInt(875000000),
-			GasFeeCap:         big.NewInt(875000000),
-			GasTipCap:         big.NewInt(875000000),
-			Data:              aatx.PaymasterData[20:],
+			From:      *aatx.Sender,
+			To:        &paymasterAddress,
+			Value:     big.NewInt(0),
+			GasLimit:  100000,
+			GasPrice:  big.NewInt(875000000),
+			GasFeeCap: big.NewInt(875000000),
+			GasTipCap: big.NewInt(875000000),
+			Data:      data,
+			//Data:              aatx.PaymasterData[20:],
 			AccessList:        aatx.AccessList,
 			SkipAccountChecks: true,
 			IsInnerAATxFrame:  true,
 		}
 
 		// Apply the Paymaster call frame transaction to the current state (included in the env).
-		resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
+		resultPm, err := ApplyAATxMessage(evm, paymasterMsg, gp)
 		if err != nil {
 			return nil, err
 		}
@@ -207,6 +236,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			log.Error("ALEXF AA: paymaster validation failed")
 			return nil, errors.New("paymaster validation failed - invalid transaction")
 		}
+		fmt.Printf("\nALEXF AA resultPaymasterValidation: %s\n", hex.EncodeToString(resultPm.ReturnData))
+		paymasterContext = resultPm.ReturnData
 	}
 
 	vpr := &ValidationPhaseResult{
@@ -221,7 +252,6 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
 	aatx := vpr.Tx.AlexfAATransactionData()
 
-	executionData := make([]byte, 0)
 	accountExecutionMsg := &Message{
 		From:              *aatx.Sender,
 		To:                aatx.Sender,
@@ -230,7 +260,7 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 		GasPrice:          big.NewInt(875000000),
 		GasFeeCap:         big.NewInt(875000000),
 		GasTipCap:         big.NewInt(875000000),
-		Data:              executionData,
+		Data:              aatx.Data,
 		AccessList:        aatx.AccessList,
 		SkipAccountChecks: true,
 		IsInnerAATxFrame:  true,
@@ -238,12 +268,13 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 	// TODO: snapshot EVM - we will fall back here if postOp fails
 	// / FAILS as msg.From is 0x000 because it is read from the signature
 	// Apply the execution call frame transaction to the current state
-	result, err := ApplyMessage(evm, accountExecutionMsg, gp)
+	result, err := ApplyAATxMessage(evm, accountExecutionMsg, gp)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(vpr.paymasterContext) != 0 {
+		postOpData := common.FromHex("0x34a4a77c00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
 		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 		paymasterPostOpMsg := &Message{
 			From:              *aatx.Sender,
@@ -253,11 +284,11 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 			GasPrice:          big.NewInt(875000000),
 			GasFeeCap:         big.NewInt(875000000),
 			GasTipCap:         big.NewInt(875000000),
-			Data:              vpr.paymasterContext, // todo: wrap with 'postTransaction()'
+			Data:              postOpData,
 			AccessList:        aatx.AccessList,
 			SkipAccountChecks: true,
 			IsInnerAATxFrame:  true}
-		resultPostOp, err := ApplyMessage(evm, paymasterPostOpMsg, gp)
+		resultPostOp, err := ApplyAATxMessage(evm, paymasterPostOpMsg, gp)
 		if err != nil {
 			return nil, err
 		}
