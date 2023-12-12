@@ -174,14 +174,27 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
 
 	if len(aatx.DeployerData) >= 20 {
+		deployerCaller := common.HexToAddress("0x7560200000000000000000000000000000075602")
 		var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
 		if (deployerAddress.Cmp(common.Address{}) != 0) {
-			deployerMsg := &Message{}
+			deployerMsg := &Message{
+				From:              deployerCaller,
+				To:                &deployerAddress,
+				Value:             big.NewInt(0),
+				GasLimit:          15000000,
+				GasPrice:          big.NewInt(875000000),
+				GasFeeCap:         big.NewInt(875000000),
+				GasTipCap:         big.NewInt(875000000),
+				Data:              aatx.DeployerData[20:],
+				AccessList:        aatx.AccessList,
+				SkipAccountChecks: true,
+				IsInnerAATxFrame:  true,
+			}
 			resultDeployer, err := ApplyAATxMessage(evm, deployerMsg, gp)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("ALEXF AA resultDeployer: %s", hex.EncodeToString(resultDeployer.ReturnData))
+			fmt.Printf("ALEXF AA resultDeployer: %s\n", common.Bytes2Hex(resultDeployer.ReturnData))
 		}
 	}
 
