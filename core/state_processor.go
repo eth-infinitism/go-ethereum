@@ -174,7 +174,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
 
 	if len(aatx.DeployerData) >= 20 {
-		deployerCaller := common.HexToAddress("0x7560200000000000000000000000000000075602")
+		deployerCaller := common.HexToAddress("0x7560ffffffffffffffffffffffffffffffff7560")
 		var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
 		if (deployerAddress.Cmp(common.Address{}) != 0) {
 			deployerMsg := &Message{
@@ -292,7 +292,14 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 	}
 
 	if len(vpr.paymasterContext) != 0 {
-		postOpData := common.FromHex("0x34a4a77c00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000")
+		jsondata := `[
+			{"type":"function","name":"postPaymasterTransaction","inputs": [{"name": "success","type": "bool"},{"name": "actualGasCost","type": "uint256"},{"name": "context","type": "bytes"}]}
+		]`
+		postPaymasterTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
+		postOpData, err := postPaymasterTransactionAbi.Pack("postPaymasterTransaction", true, big.NewInt(0), vpr.paymasterContext)
+		if err != nil {
+			return nil, err
+		}
 		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 		paymasterPostOpMsg := &Message{
 			From:              *aatx.Sender,
