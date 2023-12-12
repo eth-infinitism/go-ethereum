@@ -33,7 +33,6 @@ type AlexfAccountAbstractionTx struct {
 	GasFeeCap  *big.Int // a.k.a. maxFeePerGas
 	Gas        uint64
 	To         *common.Address
-	Value      *big.Int
 	Data       []byte
 	AccessList AccessList
 
@@ -49,6 +48,7 @@ type AlexfAccountAbstractionTx struct {
 
 	// removed fields
 	Nonce uint64
+	Value *big.Int
 	// Signature values
 	// V *big.Int `json:"v" gencodec:"required"`
 	// R *big.Int `json:"r" gencodec:"required"`

@@ -173,6 +173,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	}
 	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
 
+	var deploymentGas uint64
 	if len(aatx.DeployerData) >= 20 {
 		deployerCaller := common.HexToAddress("0x7560ffffffffffffffffffffffffffffffff7560")
 		var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
@@ -181,10 +182,10 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 				From:              deployerCaller,
 				To:                &deployerAddress,
 				Value:             big.NewInt(0),
-				GasLimit:          15000000,
-				GasPrice:          big.NewInt(875000000),
-				GasFeeCap:         big.NewInt(875000000),
-				GasTipCap:         big.NewInt(875000000),
+				GasLimit:          aatx.ValidationGas,
+				GasPrice:          aatx.GasFeeCap,
+				GasFeeCap:         aatx.GasFeeCap,
+				GasTipCap:         aatx.GasTipCap,
 				Data:              aatx.DeployerData[20:],
 				AccessList:        aatx.AccessList,
 				SkipAccountChecks: true,
@@ -194,6 +195,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			if err != nil {
 				return nil, err
 			}
+			deploymentGas = resultDeployer.UsedGas
 			fmt.Printf("ALEXF AA resultDeployer: %s\n", common.Bytes2Hex(resultDeployer.ReturnData))
 		}
 	}
@@ -201,13 +203,13 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	txAbiEncoding, err := aatx.AbiEncode()
 	validateTransactionData, err := validateTransactionAbi.Pack("validateTransaction", big.NewInt(0), thash, txAbiEncoding)
 	accountValidationMsg := &Message{
-		From:              *aatx.Sender,
+		From:              entryPoint,
 		To:                aatx.Sender,
 		Value:             big.NewInt(0),
-		GasLimit:          100000,
-		GasPrice:          big.NewInt(875000000),
-		GasFeeCap:         big.NewInt(875000000),
-		GasTipCap:         big.NewInt(875000000),
+		GasLimit:          aatx.ValidationGas - deploymentGas,
+		GasPrice:          aatx.GasFeeCap,
+		GasFeeCap:         aatx.GasFeeCap,
+		GasTipCap:         aatx.GasTipCap,
 		Data:              validateTransactionData,
 		AccessList:        aatx.AccessList,
 		SkipAccountChecks: true,
@@ -229,15 +231,14 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 		paymasterMsg := &Message{
-			From:      *aatx.Sender,
-			To:        &paymasterAddress,
-			Value:     big.NewInt(0),
-			GasLimit:  100000,
-			GasPrice:  big.NewInt(875000000),
-			GasFeeCap: big.NewInt(875000000),
-			GasTipCap: big.NewInt(875000000),
-			Data:      data,
-			//Data:              aatx.PaymasterData[20:],
+			From:              entryPoint,
+			To:                &paymasterAddress,
+			Value:             big.NewInt(0),
+			GasLimit:          aatx.PaymasterGas,
+			GasPrice:          aatx.GasFeeCap,
+			GasFeeCap:         aatx.GasFeeCap,
+			GasTipCap:         aatx.GasTipCap,
+			Data:              data,
 			AccessList:        aatx.AccessList,
 			SkipAccountChecks: true,
 			IsInnerAATxFrame:  true,
@@ -270,14 +271,15 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
 	aatx := vpr.Tx.AlexfAATransactionData()
 
+	entryPoint := common.HexToAddress("0x7560000000000000000000000000000000007560")
 	accountExecutionMsg := &Message{
-		From:              *aatx.Sender,
+		From:              entryPoint,
 		To:                aatx.Sender,
 		Value:             big.NewInt(0),
-		GasLimit:          100000,
-		GasPrice:          big.NewInt(875000000),
-		GasFeeCap:         big.NewInt(875000000),
-		GasTipCap:         big.NewInt(875000000),
+		GasLimit:          aatx.Gas,
+		GasPrice:          aatx.GasFeeCap,
+		GasFeeCap:         aatx.GasFeeCap,
+		GasTipCap:         aatx.GasTipCap,
 		Data:              aatx.Data,
 		AccessList:        aatx.AccessList,
 		SkipAccountChecks: true,
@@ -302,13 +304,13 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 		}
 		var paymasterAddress common.Address = [20]byte(aatx.PaymasterData[0:20])
 		paymasterPostOpMsg := &Message{
-			From:              *aatx.Sender,
+			From:              entryPoint,
 			To:                &paymasterAddress,
 			Value:             big.NewInt(0),
-			GasLimit:          100000,
-			GasPrice:          big.NewInt(875000000),
-			GasFeeCap:         big.NewInt(875000000),
-			GasTipCap:         big.NewInt(875000000),
+			GasLimit:          aatx.PaymasterGas - result.UsedGas,
+			GasPrice:          aatx.GasFeeCap,
+			GasFeeCap:         aatx.GasFeeCap,
+			GasTipCap:         aatx.GasTipCap,
 			Data:              postOpData,
 			AccessList:        aatx.AccessList,
 			SkipAccountChecks: true,
