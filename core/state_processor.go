@@ -17,6 +17,7 @@
 package core
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -135,7 +136,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool) (*ValidationPhaseResult, error) {
+func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool, time uint64) (*ValidationPhaseResult, error) {
 	jsondata := `[
 	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]},
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
@@ -171,6 +172,10 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	if err != nil {
 		return nil, err
 	}
+	if resultNonceManager.Err != nil {
+		return nil, resultNonceManager.Err
+	}
+
 	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
 
 	var deploymentGas uint64
@@ -195,6 +200,10 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			if err != nil {
 				return nil, err
 			}
+			if resultDeployer.Failed() {
+				// TODO: bubble up the inner error message to the user, if possible
+				return nil, errors.New("account deployment  failed - invalid transaction")
+			}
 			deploymentGas = resultDeployer.UsedGas
 			fmt.Printf("ALEXF AA resultDeployer: %s\n", common.Bytes2Hex(resultDeployer.ReturnData))
 		}
@@ -216,6 +225,13 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		IsInnerAATxFrame:  true,
 	}
 	resultAccountValidation, err := ApplyAATxMessage(evm, accountValidationMsg, gp)
+	if err != nil {
+		return nil, err
+	}
+	if resultAccountValidation.Err != nil {
+		return nil, resultAccountValidation.Err
+	}
+	err = validateAccountReturnData(resultAccountValidation.ReturnData, time)
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +270,11 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			log.Error("ALEXF AA: paymaster validation failed")
 			return nil, errors.New("paymaster validation failed - invalid transaction")
 		}
-		fmt.Printf("\nALEXF AA resultPaymasterValidation: %s\n", hex.EncodeToString(resultPm.ReturnData))
-		paymasterContext = resultPm.ReturnData
+		paymasterContext, err = validatePaymasterReturnData(resultPm.ReturnData, time)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Printf("\nALEXF AA resultPaymasterValidation: %s\n", hex.EncodeToString(paymasterContext))
 	}
 
 	vpr := &ValidationPhaseResult{
@@ -266,6 +285,83 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	}
 
 	return vpr, nil
+}
+
+func validateAccountReturnData(data []byte, time uint64) error {
+	// abi.encodePacked(MAGIC_VALUE_SENDER, validUntil, validAfter)
+	MAGIC_VALUE_SENDER := uint32(0xbf45c166)
+	if len(data) != 32 {
+		return errors.New("invalid account return data length")
+	}
+	magicExpected := binary.BigEndian.Uint32(data[:4])
+	if magicExpected != MAGIC_VALUE_SENDER {
+		return errors.New("account did not return correct MAGIC_VALUE")
+	}
+	validAfter := binary.BigEndian.Uint64(data[4:12])
+	validUntil := binary.BigEndian.Uint64(data[12:20])
+	err := validateValidityTimeRange(time, validAfter, validUntil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+//type PaymasterReturnData struct {
+//	context []byte
+//	validUntil uint64
+//	validAfter uint64
+//}
+
+// TODO: update the RIP text itself - starts with 'MAGIC_VALUE_PAYMASTER' 4 byte sig
+//
+//	it is generally confusing that account uses abi.encodePacked() while paymaster uses abi.encode()
+func validatePaymasterReturnData(data []byte, time uint64) ([]byte, error) {
+	// abi.encode(context, MAGIC_VALUE_PAYMASTER, validUntil, validAfter)
+	MAGIC_VALUE_PAYMASTER := uint32(0xe0e6183a)
+	if len(data) < 4 {
+		return nil, errors.New("invalid paymaster return data length")
+	}
+	magicExpected := binary.BigEndian.Uint32(data[:4])
+	if magicExpected != MAGIC_VALUE_PAYMASTER {
+		return nil, errors.New("paymaster did not return correct MAGIC_VALUE")
+	}
+
+	jsondata := `[
+			{"type":"function","name":"validatePaymasterTransaction","outputs": [{"name": "context","type": "bytes"},{"name": "validUntil","type": "uint256"},{"name": "validAfter","type": "uint256"}]}
+		]`
+	validatePaymasterTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
+	if err != nil {
+		// todo: wrap error message
+		return nil, err
+	}
+	decodedPmReturnData, err := validatePaymasterTransactionAbi.Unpack("validatePaymasterTransaction", data[4:])
+	if err != nil {
+		return nil, err
+	}
+	context := decodedPmReturnData[0].([]byte)
+	validAfter := decodedPmReturnData[1].(*big.Int)
+	validUntil := decodedPmReturnData[2].(*big.Int)
+	err = validateValidityTimeRange(time, validAfter.Uint64(), validUntil.Uint64())
+	if err != nil {
+		return nil, err
+	}
+	return context, nil
+}
+
+func validateValidityTimeRange(time uint64, validAfter uint64, validUntil uint64) error {
+	if validUntil == 0 && validAfter == 0 {
+		return nil
+	}
+	if validUntil < validAfter {
+		return errors.New("type 4 transaction validity range invalid")
+	}
+	if time > validUntil {
+		return errors.New("type 4 transaction validity expired")
+	}
+	if time < validAfter {
+		return errors.New("type 4 transaction validity not reached yet")
+	}
+	return nil
 }
 
 func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
@@ -423,7 +519,7 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
 
 	// Validation phase
-	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, vmenv, gp)
+	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, vmenv, gp, header.Time)
 	if err != nil {
 		return nil, err
 	}
