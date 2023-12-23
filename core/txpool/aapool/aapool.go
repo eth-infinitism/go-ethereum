@@ -8,8 +8,21 @@ import (
 	"github.com/ethereum/go-ethereum/core/txpool/blobpool"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/params"
 	"math/big"
+	"sync/atomic"
 )
+
+type Config struct {
+	// nonce manager address
+	// ops per staked/unstaked ACC/PM/DEPL
+	// max validation gas limit
+}
+
+// Reputations are maintained per entity as defined in ERC-7562
+type Reputations struct {
+	// opsSeen, opsIncluded
+}
 
 // AccountAbstractionPool is the transaction pool dedicated to RIP-7560 AA transactions.
 type AlexfAccountAbstractionPool struct {
@@ -17,11 +30,18 @@ type AlexfAccountAbstractionPool struct {
 	//storedTransaction *types.Transaction
 	pending       map[common.Address][]*types.Transaction
 	pendingByHash map[common.Hash]*types.Transaction
+
+	// stuff needed to run the tracer on validation code
+	chainConfig *params.ChainConfig
+	// todo: chain is a god object and certainly should not be passed to a mempool, right?
+	chain       *core.BlockChain
+	currentHead atomic.Pointer[types.Header] // Current head of the blockchain
 }
 
 func (pool *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Header, reserve txpool.AddressReserver) error {
 	pool.pending = make(map[common.Address][]*types.Transaction)
 	pool.pendingByHash = make(map[common.Hash]*types.Transaction)
+	pool.currentHead.Store(head)
 	//TODO implement me
 	//panic("implement me")
 	return nil
@@ -57,14 +77,36 @@ func (pool *AlexfAccountAbstractionPool) Get(hash common.Hash) *types.Transactio
 	return tx
 }
 
+func (pool *AlexfAccountAbstractionPool) validateTransaction(tx *types.Transaction) error {
+	header := pool.currentHead.Load()
+	gaspool := new(core.GasPool)
+	statedb, err := pool.chain.State()
+	if err != nil {
+		return err
+	}
+	// TODO: just overriding the tracer here is probably not the best idea
+	origTracer := pool.chain.GetVMConfig().Tracer
+	pool.chain.GetVMConfig().Tracer = new(ValidationRulesTracer)
+	if err != nil {
+		return err
+	}
+	header.BaseFee = big.NewInt(1) // todo: fix
+	_, err = core.ApplyAlexfAATransactionValidationPhase(pool.chainConfig, pool.chain, &header.Coinbase, gaspool, statedb, header, tx, *pool.chain.GetVMConfig())
+	pool.chain.GetVMConfig().Tracer = origTracer
+	pool.chain.GetVMConfig().NoBaseFee = false
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, sync bool) []error {
-	//TODO implement me
-	//panic("implement me")
 	var (
 		adds = make([]*types.Transaction, 0, len(txs))
 		errs = make([]error, len(txs))
 	)
 	for i, tx := range txs {
+		pool.validateTransaction(tx)
 		errs[i] = pool.add(tx)
 		if errs[i] == nil {
 			adds = append(adds, tx.WithoutBlobTxSidecar())
@@ -149,7 +191,7 @@ func (pool *AlexfAccountAbstractionPool) Status(hash common.Hash) txpool.TxStatu
 
 // New creates a new blob transaction pool to gather, sort and filter inbound
 // blob transactions from the network.
-func New(config blobpool.Config, chain blobpool.BlockChain) *AlexfAccountAbstractionPool {
+func New(config blobpool.Config, chain *core.BlockChain, chainConfig *params.ChainConfig) *AlexfAccountAbstractionPool {
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	//config = (&config).sanitize()
 
@@ -157,7 +199,8 @@ func New(config blobpool.Config, chain blobpool.BlockChain) *AlexfAccountAbstrac
 	return &AlexfAccountAbstractionPool{
 		//config: config,
 		//signer: types.LatestSigner(chain.Config()),
-		//chain:  chain,
+		chain:       chain,
+		chainConfig: chainConfig,
 		//lookup: make(map[common.Hash]uint64),
 		//index:  make(map[common.Address][]*blobTxMeta),
 		//spent:  make(map[common.Address]*uint256.Int),
