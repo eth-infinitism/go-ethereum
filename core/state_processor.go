@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"math/big"
 	"strings"
 )
@@ -134,6 +135,46 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles(), withdrawals)
 
 	return receipts, allLogs, *usedGas, nil
+}
+
+func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config, sender common.Address, nonceKey *big.Int) uint64 {
+
+	// todo: this is a copy paste of 5 lines that need 8 parameters to run, wtf?
+	blockContext := NewEVMBlockContext(header, bc, author)
+	message, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+	txContext := NewEVMTxContext(message)
+	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
+
+	from := common.HexToAddress("0x0000000000000000000000000000000000000000")
+	// todo: read NM address from global config
+	nonceManager := common.HexToAddress("0xa279ec69104addcdd063b12e0d2f9bd5ca2f1f2b")
+	fromBigNonceKey256, _ := uint256.FromBig(nonceKey)
+	key := make([]byte, 24)
+	fromBigNonceKey256.WriteToSlice(key)
+	nonceManagerData := make([]byte, 0)
+	nonceManagerData = append(nonceManagerData[:], sender.Bytes()...)
+	nonceManagerData = append(nonceManagerData[:], key...)
+
+	nonceManagerMsg := &Message{
+		From:              from,
+		To:                &nonceManager,
+		Value:             big.NewInt(0),
+		GasLimit:          100000,
+		GasPrice:          big.NewInt(875000000),
+		GasFeeCap:         big.NewInt(875000000),
+		GasTipCap:         big.NewInt(875000000),
+		Data:              nonceManagerData,
+		AccessList:        make(types.AccessList, 0),
+		SkipAccountChecks: true,
+		IsInnerAATxFrame:  true,
+	}
+	resultNonceManager, err := ApplyAATxMessage(vmenv, nonceManagerMsg, gp)
+	if err != nil {
+		// todo: handle
+		return 0
+	}
+	return big.NewInt(0).SetBytes(resultNonceManager.ReturnData).Uint64()
 }
 
 func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool, time uint64) (*ValidationPhaseResult, error) {

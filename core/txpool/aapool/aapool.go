@@ -31,6 +31,10 @@ type AlexfAccountAbstractionPool struct {
 	pending       map[common.Address][]*types.Transaction
 	pendingByHash map[common.Hash]*types.Transaction
 
+	incoming map[common.Hash][]*types.Transaction // transactions that were not validated yet
+
+	nonces *BigNoncer
+
 	// stuff needed to run the tracer on validation code
 	chainConfig *params.ChainConfig
 	// todo: chain is a god object and certainly should not be passed to a mempool, right?
@@ -38,7 +42,57 @@ type AlexfAccountAbstractionPool struct {
 	currentHead atomic.Pointer[types.Header] // Current head of the blockchain
 }
 
+// loop is the transaction pool's main event loop, waiting for and reacting to
+// outside blockchain events as well as for various reporting and transaction
+// eviction events.
+func (pool *AlexfAccountAbstractionPool) loop() {
+	var promoteAddrs []common.Address
+	pool.promoteExecutables(promoteAddrs)
+
+	pool.demoteUnexecutables()
+}
+
+// promoteExecutables moves transactions that have become processable from the
+// future queue to the set of pending transactions. During this process, all
+// invalidated transactions (low nonce, low balance) are deleted.
+func (pool *AlexfAccountAbstractionPool) promoteExecutables(accounts []common.Address) []*types.Transaction {
+	return nil
+}
+
+// promoteTx adds a transaction to the pending (processable) list of transactions
+// and returns whether it was inserted or an older was better.
+func (pool *AlexfAccountAbstractionPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
+	return true
+}
+
+// demoteUnexecutables removes invalid and processed transactions from the pools
+// executable/pending queue and any subsequent transactions that become unexecutable
+// are moved back into the future queue.
+func (pool *AlexfAccountAbstractionPool) demoteUnexecutables() {
+	for sender, transactions := range pool.pending {
+		for index, tx := range transactions {
+			// todo: rewrite
+			aatx := tx.AlexfAATransactionData()
+			nonceKey := aatx.BigNonce.Rsh(aatx.BigNonce, 64)
+			nonceValue := aatx.BigNonce.Uint64()
+			header := pool.currentHead.Load()
+			gaspool := new(core.GasPool)
+			statedb, _ := pool.chain.State()
+			currentValue := core.GetNonce(
+				pool.chainConfig, pool.chain, &header.Coinbase, gaspool, statedb, header, tx, *pool.chain.GetVMConfig(),
+				sender, nonceKey)
+			if nonceValue < currentValue {
+				fmt.Printf("\nALEXF: !! Removing AA transaction from mempool %s %d\n", tx.Hash(), tx.Nonce())
+				pool.pending[sender] = append(pool.pending[sender][:index], pool.pending[sender][index+1:]...)
+			}
+		}
+	}
+}
+
 func (pool *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Header, reserve txpool.AddressReserver) error {
+	pool.nonces = &BigNoncer{
+		noncePerSenderPerKey: make(map[common.Address]map[string]uint64),
+	}
 	pool.pending = make(map[common.Address][]*types.Transaction)
 	pool.pendingByHash = make(map[common.Hash]*types.Transaction)
 	pool.currentHead.Store(head)
@@ -54,6 +108,8 @@ func (pool *AlexfAccountAbstractionPool) Close() error {
 }
 
 func (pool *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
+	// just synchronously running a 'loop' for now
+	pool.loop()
 	//TODO implement me
 	//panic("implement me")
 	return
@@ -106,7 +162,6 @@ func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local boo
 		errs = make([]error, len(txs))
 	)
 	for i, tx := range txs {
-		pool.validateTransaction(tx)
 		errs[i] = pool.add(tx)
 		if errs[i] == nil {
 			adds = append(adds, tx.WithoutBlobTxSidecar())
@@ -119,14 +174,18 @@ func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local boo
 	return errs
 }
 
-// TODO: perform validation frame when adding a transaction to the AA mempool
-func (pool *AlexfAccountAbstractionPool) add(tx *types.Transaction) (err error) {
-	if tx.Type() == types.ALEXF_AA_TX_TYPE {
-		fmt.Printf("\nALEXF: Adding AA transaction to mempool %s %d\n", tx.Hash(), tx.Nonce())
-		sender := *tx.AlexfAATransactionData().Sender
-		pool.pending[sender] = append(pool.pending[sender], tx)
-		pool.pendingByHash[tx.Hash()] = tx
+func (pool *AlexfAccountAbstractionPool) add(tx *types.Transaction) error {
+	if tx.Type() != types.ALEXF_AA_TX_TYPE {
+		return nil
 	}
+	fmt.Printf("\nALEXF: Adding AA transaction to mempool %s %d\n", tx.Hash(), tx.Nonce())
+	err := pool.validateTransaction(tx)
+	if err != nil {
+		return err
+	}
+	sender := *tx.AlexfAATransactionData().Sender
+	pool.pending[sender] = append(pool.pending[sender], tx)
+	pool.pendingByHash[tx.Hash()] = tx
 	return nil
 }
 
