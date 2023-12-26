@@ -148,7 +148,7 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 
 	from := common.HexToAddress("0x0000000000000000000000000000000000000000")
 	// todo: read NM address from global config
-	nonceManager := common.HexToAddress("0xa279ec69104addcdd063b12e0d2f9bd5ca2f1f2b")
+	nonceManager := common.HexToAddress("0x8a04209fea8a2ba7c939ad0eababdd6329e12992")
 	fromBigNonceKey256, _ := uint256.FromBig(nonceKey)
 	key := make([]byte, 24)
 	fromBigNonceKey256.WriteToSlice(key)
@@ -172,7 +172,13 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 	resultNonceManager, err := ApplyAATxMessage(vmenv, nonceManagerMsg, gp)
 	if err != nil {
 		// todo: handle
-		return 0
+		return 777
+	}
+	if resultNonceManager.Err != nil {
+		return 888
+	}
+	if resultNonceManager.ReturnData == nil {
+		return 999
 	}
 	return big.NewInt(0).SetBytes(resultNonceManager.ReturnData).Uint64()
 }
@@ -193,7 +199,10 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	// TODO: pre-deployed Nonce Manager; this is just a way to pass it in
 	var nonceManager common.Address = [20]byte(aatx.PaymasterData[20:40])
 	nonceManagerData := make([]byte, 0)
-	key := make([]byte, 40) // todo: also nonce
+	key := make([]byte, 32)
+	fromBig, _ := uint256.FromBig(aatx.BigNonce)
+	fromBig.WriteToSlice(key)
+
 	nonceManagerData = append(nonceManagerData[:], aatx.Sender.Bytes()...)
 	nonceManagerData = append(nonceManagerData[:], key...)
 	nonceManagerMsg := &Message{
@@ -217,7 +226,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		return nil, resultNonceManager.Err
 	}
 
-	fmt.Printf("ALEXF AA resultNonceManager: %s\n", hex.EncodeToString(resultNonceManager.ReturnData))
+	fmt.Printf("ALEXF AA resultNonceManager : %d %t\n", resultNonceManager.UsedGas, resultNonceManager.Failed())
 
 	var deploymentGas uint64
 	if len(aatx.DeployerData) >= 20 {

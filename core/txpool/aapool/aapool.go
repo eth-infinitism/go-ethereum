@@ -24,7 +24,7 @@ type Reputations struct {
 	// opsSeen, opsIncluded
 }
 
-// AccountAbstractionPool is the transaction pool dedicated to RIP-7560 AA transactions.
+// AlexfAccountAbstractionPool is the transaction pool dedicated to RIP-7560 AA transactions.
 type AlexfAccountAbstractionPool struct {
 	discoverFeed event.Feed // Event feed to send out new tx events on pool inclusion (reorg included)
 	//storedTransaction *types.Transaction
@@ -73,7 +73,9 @@ func (pool *AlexfAccountAbstractionPool) demoteUnexecutables() {
 		for index, tx := range transactions {
 			// todo: rewrite
 			aatx := tx.AlexfAATransactionData()
-			nonceKey := aatx.BigNonce.Rsh(aatx.BigNonce, 64)
+			nonceKey := new(big.Int)
+			nonceKey.Set(aatx.BigNonce)
+			nonceKey = nonceKey.Rsh(nonceKey, 64)
 			nonceValue := aatx.BigNonce.Uint64()
 			header := pool.currentHead.Load()
 			gaspool := new(core.GasPool)
@@ -82,9 +84,13 @@ func (pool *AlexfAccountAbstractionPool) demoteUnexecutables() {
 				pool.chainConfig, pool.chain, &header.Coinbase, gaspool, statedb, header, tx, *pool.chain.GetVMConfig(),
 				sender, nonceKey)
 			if nonceValue < currentValue {
-				fmt.Printf("\nALEXF: !! Removing AA transaction from mempool %s %d\n", tx.Hash(), tx.Nonce())
+				fmt.Printf("\nALEXF: !! Removing AA transaction from mempool nonceValue: %d currentValue: %d\n  %s", nonceValue, currentValue, tx.Hash())
 				pool.pending[sender] = append(pool.pending[sender][:index], pool.pending[sender][index+1:]...)
 			}
+		}
+		if len(pool.pending[sender]) == 0 {
+			fmt.Printf("\nALEXF: !! Removing AA sender: %s", sender)
+			delete(pool.pending, sender)
 		}
 	}
 }
@@ -109,6 +115,8 @@ func (pool *AlexfAccountAbstractionPool) Close() error {
 
 func (pool *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
 	// just synchronously running a 'loop' for now
+	fmt.Printf("\nALEXF: AAPool Reset %s %s", oldHead.Number.String(), newHead.Number.String())
+	pool.currentHead.Store(newHead)
 	pool.loop()
 	//TODO implement me
 	//panic("implement me")
@@ -142,7 +150,7 @@ func (pool *AlexfAccountAbstractionPool) validateTransaction(tx *types.Transacti
 	}
 	// TODO: just overriding the tracer here is probably not the best idea
 	origTracer := pool.chain.GetVMConfig().Tracer
-	pool.chain.GetVMConfig().Tracer = new(ValidationRulesTracer)
+	//pool.chain.GetVMConfig().Tracer = new(ValidationRulesTracer)
 	if err != nil {
 		return err
 	}
@@ -157,6 +165,7 @@ func (pool *AlexfAccountAbstractionPool) validateTransaction(tx *types.Transacti
 }
 
 func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, sync bool) []error {
+	fmt.Printf("\nALEXF: AAPool Add")
 	var (
 		adds = make([]*types.Transaction, 0, len(txs))
 		errs = make([]error, len(txs))
@@ -178,7 +187,7 @@ func (pool *AlexfAccountAbstractionPool) add(tx *types.Transaction) error {
 	if tx.Type() != types.ALEXF_AA_TX_TYPE {
 		return nil
 	}
-	fmt.Printf("\nALEXF: Adding AA transaction to mempool %s %d\n", tx.Hash(), tx.Nonce())
+	//fmt.Printf("\nALEXF: Adding AA transaction to mempool %s %d\n", tx.Hash(), tx.Nonce())
 	err := pool.validateTransaction(tx)
 	if err != nil {
 		return err
@@ -208,7 +217,7 @@ func (pool *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Ad
 		}
 		pending[sender] = lts
 	}
-	fmt.Printf("\nALEXF: Returning pending AA transaction to mempool, len= %d\n", len(pending))
+	fmt.Printf("\nALEXF: AAPool Pending len= %d\n", len(pending))
 	return pending
 }
 
@@ -217,9 +226,8 @@ func (pool *AlexfAccountAbstractionPool) SubscribeTransactions(ch chan<- core.Ne
 	return pool.discoverFeed.Subscribe(ch)
 }
 
+// Nonce is only used from 'GetPoolNonce' which is not relevant for AA transactions
 func (pool *AlexfAccountAbstractionPool) Nonce(addr common.Address) uint64 {
-	//TODO implement me
-	//panic("implement me")
 	return 0
 }
 
@@ -238,8 +246,8 @@ func (pool *AlexfAccountAbstractionPool) ContentFrom(addr common.Address) ([]*ty
 	panic("implement me")
 }
 
+// Locals are not necessary for AA Pool
 func (pool *AlexfAccountAbstractionPool) Locals() []common.Address {
-	//TODO implement me
 	return []common.Address{}
 }
 
@@ -266,7 +274,7 @@ func New(config blobpool.Config, chain *core.BlockChain, chainConfig *params.Cha
 	}
 }
 
-// Filter returns whether the given transaction can be consumed by the blob pool.
+// Filter returns whether the given transaction can be consumed by the pool.
 func (pool *AlexfAccountAbstractionPool) Filter(tx *types.Transaction) bool {
 	return tx.Type() == types.ALEXF_AA_TX_TYPE
 }
