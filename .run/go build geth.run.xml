@@ -2,7 +2,7 @@
   <configuration default="false" name="go build geth" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="go-ethereum" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="--networkid 1337 --dev --dev.period 0 --allow-insecure-unlock --http.api &quot;eth,net,web3,personal,web3&quot; --identity &quot;HelloWorldNode&quot; --http --datadir /tmp/testnet" />
+    <parameters value="--networkid 1337 --dev --dev.period 0 --allow-insecure-unlock --http.api &quot;eth,net,web3,personal,web3&quot; --identity &quot;HelloWorldNode&quot; --http --rpc.allow-unprotected-txs" />
     <kind value="PACKAGE" />
     <package value="github.com/ethereum/go-ethereum/cmd/geth" />
     <directory value="$PROJECT_DIR$" />

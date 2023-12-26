@@ -125,7 +125,7 @@ func (pool *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
 
 func (pool *AlexfAccountAbstractionPool) SetGasTip(tip *big.Int) {
 	//TODO implement me
-	panic("implement me")
+	//panic("implement me")
 }
 
 func (pool *AlexfAccountAbstractionPool) Has(hash common.Hash) bool {
