@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/params"
 	"math/big"
+	"sync"
 	"sync/atomic"
 )
 
@@ -40,6 +41,9 @@ type AlexfAccountAbstractionPool struct {
 	// todo: chain is a god object and certainly should not be passed to a mempool, right?
 	chain       *core.BlockChain
 	currentHead atomic.Pointer[types.Header] // Current head of the blockchain
+
+	// todo: proper thread safety
+	mu sync.Mutex
 }
 
 // loop is the transaction pool's main event loop, waiting for and reacting to
@@ -114,6 +118,9 @@ func (pool *AlexfAccountAbstractionPool) Close() error {
 }
 
 func (pool *AlexfAccountAbstractionPool) Reset(oldHead, newHead *types.Header) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
 	// just synchronously running a 'loop' for now
 	fmt.Printf("\nALEXF: AAPool Reset %s %s", oldHead.Number.String(), newHead.Number.String())
 	pool.currentHead.Store(newHead)
@@ -202,7 +209,10 @@ func (pool *AlexfAccountAbstractionPool) add(tx *types.Transaction) error {
 }
 
 func (pool *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Address][]*txpool.LazyTransaction {
-	//TODO implement me
+
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
 	pending := make(map[common.Address][]*txpool.LazyTransaction)
 	for sender, txs := range pool.pending {
 		lts := make([]*txpool.LazyTransaction, len(txs))
