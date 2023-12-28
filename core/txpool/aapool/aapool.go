@@ -154,8 +154,9 @@ func (pool *AlexfAccountAbstractionPool) validateTransaction(tx *types.Transacti
 	if err != nil {
 		return err
 	}
-	header.BaseFee = big.NewInt(1) // todo: fix
-	_, err = core.ApplyAlexfAATransactionValidationPhase(pool.chainConfig, pool.chain, &header.Coinbase, gaspool, statedb, header, tx, *pool.chain.GetVMConfig())
+
+	stateDbCopy := statedb.Copy()
+	_, err = core.ApplyAlexfAATransactionValidationPhase(pool.chainConfig, pool.chain, &header.Coinbase, gaspool, stateDbCopy, header, tx, *pool.chain.GetVMConfig())
 	pool.chain.GetVMConfig().Tracer = origTracer
 	pool.chain.GetVMConfig().NoBaseFee = false
 	if err != nil {
@@ -165,7 +166,9 @@ func (pool *AlexfAccountAbstractionPool) validateTransaction(tx *types.Transacti
 }
 
 func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local bool, sync bool) []error {
-	fmt.Printf("\nALEXF: AAPool Add")
+	if len(txs) > 0 {
+		fmt.Printf("\nALEXF: AAPool Add %d\n", len(txs))
+	}
 	var (
 		adds = make([]*types.Transaction, 0, len(txs))
 		errs = make([]error, len(txs))

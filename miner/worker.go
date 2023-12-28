@@ -814,7 +814,6 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 
 		tx := ltx.Resolve()
 		if tx.Type() != types.ALEXF_AA_TX_TYPE {
-			log.Error("ALEXF: skipping a legacy transaction in 'commitBatchAlexfAATransactions' function")
 			txs.Pop()
 			continue
 		}

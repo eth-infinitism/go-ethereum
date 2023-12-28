@@ -90,7 +90,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	for i, tx := range block.Transactions() {
 		if tx.Type() == types.ALEXF_AA_TX_TYPE {
 			statedb.SetTxContext(tx.Hash(), i) // todo: 'i' is not correct as well if other transactions are in a block!
-			vpr, err := ApplyAlexfAATransactionValidationPhase(p.config, p.bc, &header.Coinbase, gp, statedb, header, tx, cfg)
+			vpr, err := ApplyAlexfAATransactionValidationPhase(p.config, p.bc, &context.Coinbase, gp, statedb, header, tx, cfg)
 			if err != nil {
 				return nil, nil, 0, err
 			}
@@ -102,7 +102,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		// TODO: this will miss all validation phase events - pass in 'vpr'
 		statedb.SetTxContext(vpr.Tx.Hash(), i)
 
-		receipt, err := ApplyAlexfAATransactionExecutionPhase(p.config, vpr, blockNumber, blockHash, p.bc, &header.Coinbase, gp, statedb, header, cfg)
+		receipt, err := ApplyAlexfAATransactionExecutionPhase(p.config, vpr, blockNumber, blockHash, p.bc, &context.Coinbase, gp, statedb, header, cfg)
 		if err != nil {
 			return nil, nil, 0, err
 		}
@@ -218,7 +218,9 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		SkipAccountChecks: true,
 		IsInnerAATxFrame:  true,
 	}
-	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gp)
+	gpnm := new(GasPool).AddGas(10000777)
+
+	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gpnm)
 	if err != nil {
 		return nil, err
 	}
@@ -438,6 +440,7 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("ALEXF AA result execution: %s", hex.EncodeToString(result.ReturnData))
 
 	if len(vpr.paymasterContext) != 0 {
 		jsondata := `[
