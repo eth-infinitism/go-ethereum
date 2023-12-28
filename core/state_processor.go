@@ -85,6 +85,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
 	}
 
+	fmt.Printf("ALEXF AA Process: block # %d ; tx count: %d ; coinbase: %s ; hash: %s\n", block.Number(), len(block.Transactions()), context.Coinbase, block.Hash().String())
 	// TODO: this is not correct in general as AA transactions can be anywhere in a block
 	verifiedAATransactions := make([]*ValidationPhaseResult, 0)
 	for i, tx := range block.Transactions() {
@@ -183,7 +184,7 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 	return big.NewInt(0).SetBytes(resultNonceManager.ReturnData).Uint64()
 }
 
-func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool, time uint64) (*ValidationPhaseResult, error) {
+func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool, time uint64, statedb *state.StateDB, author *common.Address) (*ValidationPhaseResult, error) {
 	jsondata := `[
 	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]},
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
@@ -229,6 +230,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	}
 
 	fmt.Printf("ALEXF AA resultNonceManager : %d %t\n", resultNonceManager.UsedGas, resultNonceManager.Failed())
+	root := statedb.IntermediateRoot(true).Bytes()
+	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
 	var deploymentGas uint64
 	if len(aatx.DeployerData) >= 20 {
@@ -258,6 +261,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			}
 			deploymentGas = resultDeployer.UsedGas
 			fmt.Printf("ALEXF AA resultDeployer: %s\n", common.Bytes2Hex(resultDeployer.ReturnData))
+			root := statedb.IntermediateRoot(true).Bytes()
+			fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 		}
 	}
 
@@ -288,6 +293,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		return nil, err
 	}
 	fmt.Printf("\nALEXF AA resultAccountValidation: %s\n", hex.EncodeToString(resultAccountValidation.ReturnData))
+	root = statedb.IntermediateRoot(true).Bytes()
+	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
 	var paymasterContext []byte
 	if len(aatx.PaymasterData) >= 20 {
@@ -327,6 +334,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			return nil, err
 		}
 		fmt.Printf("\nALEXF AA resultPaymasterValidation: %s\n", hex.EncodeToString(paymasterContext))
+		root := statedb.IntermediateRoot(true).Bytes()
+		fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 	}
 
 	vpr := &ValidationPhaseResult{
@@ -441,6 +450,8 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 		return nil, err
 	}
 	fmt.Printf("ALEXF AA result execution: %s", hex.EncodeToString(result.ReturnData))
+	root := statedb.IntermediateRoot(true).Bytes()
+	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
 	if len(vpr.paymasterContext) != 0 {
 		jsondata := `[
@@ -469,9 +480,11 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 			return nil, err
 		}
 		fmt.Printf("ALEXF AA resultPostOp: %s", hex.EncodeToString(resultPostOp.ReturnData))
+		root := statedb.IntermediateRoot(true).Bytes()
+		fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 	}
 
-	var root []byte
+	//var root []byte
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), PostState: root, CumulativeGasUsed: 0 /**TODO: usedGas*/}
 
 	// Set the receipt logs and create the bloom filter.
@@ -571,8 +584,12 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
 
+	root := statedb.IntermediateRoot(true).Bytes()
+	fmt.Printf("IntermediateRoot (before validation): %s\n", common.Bytes2Hex(root))
+
 	// Validation phase
-	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, vmenv, gp, header.Time)
+	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, vmenv, gp, header.Time, statedb, author)
+	fmt.Printf("IntermediateRoot (after validation): %s\n", common.Bytes2Hex(root))
 	if err != nil {
 		return nil, err
 	}

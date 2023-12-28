@@ -2,7 +2,7 @@
   <configuration default="false" name="go build geth :8546" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="go-ethereum" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="--networkid 1337 --allow-insecure-unlock --http.api &quot;eth,net,web3,personal,web3&quot; --http.port 8546 --identity &quot;HelloWorldNode&quot; --http --bootnodes enode://f00bd8e0f1aac5044a8620e3d8bb50585220fe01a224e989a2397816e6351d0b050fb239e075c2715cbefb249774d76997b810ad4315c06b8798b2005a499528@127.0.0.1:0?discport=30303 --port 30305 --authrpc.port 8552 --datadir alexfdata2 --syncmode snap" />
+    <parameters value="--networkid 1337 --allow-insecure-unlock --http.api &quot;eth,net,web3,personal,web3&quot; --http.port 8546 --identity &quot;HelloWorldNode&quot; --http --bootnodes enode://f00bd8e0f1aac5044a8620e3d8bb50585220fe01a224e989a2397816e6351d0b050fb239e075c2715cbefb249774d76997b810ad4315c06b8798b2005a499528@127.0.0.1:0?discport=30303 --port 30305 --authrpc.port 8552 --unlock 0xe29A773c4CCA73E9334FE6B7082CF593cBE261ad --password ./passwordfile --datadir alexfdata2 --syncmode snap" />
     <kind value="PACKAGE" />
     <package value="github.com/ethereum/go-ethereum/cmd/geth" />
     <directory value="$PROJECT_DIR$" />
