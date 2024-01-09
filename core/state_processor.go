@@ -149,7 +149,7 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 
 	from := common.HexToAddress("0x0000000000000000000000000000000000000000")
 	// todo: read NM address from global config
-	nonceManager := common.HexToAddress("0x8a04209fea8a2ba7c939ad0eababdd6329e12992")
+	nonceManager := common.HexToAddress("0xdebc121d1b09bc03ff57fa1f96514d04a1f0f59d")
 	fromBigNonceKey256, _ := uint256.FromBig(nonceKey)
 	key := make([]byte, 24)
 	fromBigNonceKey256.WriteToSlice(key)
@@ -184,7 +184,8 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 	return big.NewInt(0).SetBytes(resultNonceManager.ReturnData).Uint64()
 }
 
-func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, evm *vm.EVM, gp *GasPool, time uint64, statedb *state.StateDB, author *common.Address) (*ValidationPhaseResult, error) {
+// todo: describe - signing hash is made with empty array instead of signature
+func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, signingHash common.Hash, evm *vm.EVM, gp *GasPool, time uint64, statedb *state.StateDB, author *common.Address) (*ValidationPhaseResult, error) {
 	jsondata := `[
 	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]},
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
@@ -197,8 +198,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	entryPoint := common.HexToAddress("0x7560000000000000000000000000000000007560")
 	println("Alexf EP:", entryPoint.String())
-	// TODO: pre-deployed Nonce Manager; this is just a way to pass it in
-	var nonceManager common.Address = [20]byte(aatx.PaymasterData[20:40])
+	// todo: read NM address from global config
+	nonceManager := common.HexToAddress("0xdebc121d1b09bc03ff57fa1f96514d04a1f0f59d")
 	nonceManagerData := make([]byte, 0)
 	key := make([]byte, 32)
 	fromBig, _ := uint256.FromBig(aatx.BigNonce)
@@ -267,7 +268,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	}
 
 	txAbiEncoding, err := aatx.AbiEncode()
-	validateTransactionData, err := validateTransactionAbi.Pack("validateTransaction", big.NewInt(0), thash, txAbiEncoding)
+	validateTransactionData, err := validateTransactionAbi.Pack("validateTransaction", big.NewInt(0), signingHash, txAbiEncoding)
 	accountValidationMsg := &Message{
 		From:              entryPoint,
 		To:                aatx.Sender,
@@ -298,7 +299,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 
 	var paymasterContext []byte
 	if len(aatx.PaymasterData) >= 20 {
-		data, err := validateTransactionAbi.Pack("validatePaymasterTransaction", big.NewInt(0), thash, txAbiEncoding)
+		data, err := validateTransactionAbi.Pack("validatePaymasterTransaction", big.NewInt(0), signingHash, txAbiEncoding)
 
 		if err != nil {
 			return nil, err
@@ -573,13 +574,16 @@ type ValidationPhaseResult struct {
 }
 
 func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
-	log.Error("ALEXF: applying transaction validation phase")
+	log.Info("ALEXF: applying transaction validation phase, signingHash: txhash:")
+	signer := types.MakeSigner(config, header.Number, header.Time)
 	thash := tx.Hash()
+	signingHash := signer.Hash(tx)
+	log.Error(signingHash.Hex())
 	log.Error(thash.Hex())
 	aatx := tx.AlexfAATransactionData()
 
 	blockContext := NewEVMBlockContext(header, bc, author)
-	message, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+	message, err := TransactionToMessage(tx, signer, header.BaseFee)
 	txContext := NewEVMTxContext(message)
 	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
@@ -588,7 +592,7 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	fmt.Printf("IntermediateRoot (before validation): %s\n", common.Bytes2Hex(root))
 
 	// Validation phase
-	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, vmenv, gp, header.Time, statedb, author)
+	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, signingHash, vmenv, gp, header.Time, statedb, author)
 	fmt.Printf("IntermediateRoot (after validation): %s\n", common.Bytes2Hex(root))
 	if err != nil {
 		return nil, err
