@@ -19,6 +19,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"math"
 	"math/big"
 
@@ -249,6 +250,30 @@ func (st *StateTransition) to() common.Address {
 		return common.Address{}
 	}
 	return *st.msg.To
+}
+
+// BuyGasAATransaction
+// todo: move to a suitable interface, whatever that is
+// todo 2: maybe handle the "shared gas pool" situation instead of just overriding it completely?
+func BuyGasAATransaction(st *types.AlexfAccountAbstractionTx, state vm.StateDB) error {
+	gasLimit := st.Gas + st.ValidationGas + st.PaymasterGas
+	mgval := new(big.Int).SetUint64(gasLimit)
+	mgval = mgval.Mul(mgval, st.GasFeeCap)
+	balanceCheck := new(big.Int).Set(mgval)
+
+	chargeFrom := *st.Sender
+
+	if len(st.PaymasterData) >= 20 {
+		chargeFrom = [20]byte(st.PaymasterData[:20])
+	}
+
+	if have, want := state.GetBalance(chargeFrom), balanceCheck; have.Cmp(want) < 0 {
+		log.Error(fmt.Sprintf("ALEXF AA TX error: %w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want))
+		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
+	}
+
+	state.SubBalance(chargeFrom, mgval)
+	return nil
 }
 
 func (st *StateTransition) buyGas() error {

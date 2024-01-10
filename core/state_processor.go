@@ -91,6 +91,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	for i, tx := range block.Transactions() {
 		if tx.Type() == types.ALEXF_AA_TX_TYPE {
 			statedb.SetTxContext(tx.Hash(), i) // todo: 'i' is not correct as well if other transactions are in a block!
+			err := BuyGasAATransaction(tx.AlexfAATransactionData(), statedb)
+			if err != nil {
+				return nil, nil, 0, err
+			}
 			vpr, err := ApplyAlexfAATransactionValidationPhase(p.config, p.bc, &context.Coinbase, gp, statedb, header, tx, cfg)
 			if err != nil {
 				return nil, nil, 0, err

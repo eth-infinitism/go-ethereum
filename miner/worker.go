@@ -819,6 +819,10 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 		}
 		txs.Shift()
 		env.state.SetTxContext(tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
+		err := core.BuyGasAATransaction(tx.AlexfAATransactionData(), env.state)
+		if err != nil {
+			return err
+		}
 		vpr, err := core.ApplyAlexfAATransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
 		if err != nil {
 			return err
@@ -1050,6 +1054,7 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 		}
 	}
 
+	// TODO: this method does not seem to trigger any exceptions when returning an error - need to solve it somehow...
 	// With naive ordering AA transactions all go first
 	if len(remoteTxs) > 0 {
 		// TODO: filter or query AA transactions separately
