@@ -825,6 +825,7 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 		}
 		vpr, err := core.ApplyAlexfAATransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
 		if err != nil {
+			// todo: handle "invalidated" transaction - drop from mempool and continue loop
 			return err
 		}
 		// todo: keep 'paymaster context'

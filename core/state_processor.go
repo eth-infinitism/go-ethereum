@@ -224,9 +224,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		SkipAccountChecks: true,
 		IsInnerAATxFrame:  true,
 	}
-	gpnm := new(GasPool).AddGas(10000777)
 
-	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gpnm)
+	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gp)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +237,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	root := statedb.IntermediateRoot(true).Bytes()
 	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
-	var deploymentGas uint64
+	var deploymentUsedGas uint64
 	if len(aatx.DeployerData) >= 20 {
 		deployerCaller := common.HexToAddress("0x7560ffffffffffffffffffffffffffffffff7560")
 		var deployerAddress common.Address = [20]byte(aatx.DeployerData[0:20])
@@ -264,7 +263,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 				// TODO: bubble up the inner error message to the user, if possible
 				return nil, errors.New("account deployment  failed - invalid transaction")
 			}
-			deploymentGas = resultDeployer.UsedGas
+			deploymentUsedGas = resultDeployer.UsedGas
 			fmt.Printf("ALEXF AA resultDeployer: %s\n", common.Bytes2Hex(resultDeployer.ReturnData))
 			root := statedb.IntermediateRoot(true).Bytes()
 			fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
@@ -277,7 +276,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		From:              entryPoint,
 		To:                aatx.Sender,
 		Value:             big.NewInt(0),
-		GasLimit:          aatx.ValidationGas - deploymentGas,
+		GasLimit:          aatx.ValidationGas - deploymentUsedGas,
 		GasPrice:          aatx.GasFeeCap,
 		GasFeeCap:         aatx.GasFeeCap,
 		GasTipCap:         aatx.GasTipCap,
@@ -301,6 +300,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	root = statedb.IntermediateRoot(true).Bytes()
 	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
+	var pmValidationUsedGas uint64
 	var paymasterContext []byte
 	if len(aatx.PaymasterData) >= 20 {
 		data, err := validateTransactionAbi.Pack("validatePaymasterTransaction", big.NewInt(0), signingHash, txAbiEncoding)
@@ -334,6 +334,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			log.Error("ALEXF AA: paymaster validation failed")
 			return nil, errors.New("paymaster validation failed - invalid transaction")
 		}
+		pmValidationUsedGas = resultPm.UsedGas
 		paymasterContext, err = validatePaymasterReturnData(resultPm.ReturnData, time)
 		if err != nil {
 			return nil, err
@@ -344,10 +345,11 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	}
 
 	vpr := &ValidationPhaseResult{
-		paymasterContext:  paymasterContext,
-		Thash:             thash,
-		validationGasUsed: 0,
-		paymasterGasUsed:  0,
+		PaymasterContext:    paymasterContext,
+		Thash:               thash,
+		DeploymentUsedGas:   deploymentUsedGas,
+		ValidationUsedGas:   resultAccountValidation.UsedGas,
+		PmValidationUsedGas: pmValidationUsedGas,
 	}
 
 	return vpr, nil
@@ -458,12 +460,13 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 	root := statedb.IntermediateRoot(true).Bytes()
 	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
-	if len(vpr.paymasterContext) != 0 {
+	var pmPostOpUsedGas uint64
+	if len(vpr.PaymasterContext) != 0 {
 		jsondata := `[
 			{"type":"function","name":"postPaymasterTransaction","inputs": [{"name": "success","type": "bool"},{"name": "actualGasCost","type": "uint256"},{"name": "context","type": "bytes"}]}
 		]`
 		postPaymasterTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
-		postOpData, err := postPaymasterTransactionAbi.Pack("postPaymasterTransaction", true, big.NewInt(0), vpr.paymasterContext)
+		postOpData, err := postPaymasterTransactionAbi.Pack("postPaymasterTransaction", true, big.NewInt(0), vpr.PaymasterContext)
 		if err != nil {
 			return nil, err
 		}
@@ -484,13 +487,20 @@ func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.E
 		if err != nil {
 			return nil, err
 		}
+		pmPostOpUsedGas = resultPostOp.UsedGas
 		fmt.Printf("ALEXF AA resultPostOp: %s", hex.EncodeToString(resultPostOp.ReturnData))
 		root := statedb.IntermediateRoot(true).Bytes()
 		fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 	}
 
+	cumulativeGasUsed :=
+		vpr.ValidationUsedGas +
+			vpr.DeploymentUsedGas +
+			vpr.PmValidationUsedGas +
+			result.UsedGas +
+			pmPostOpUsedGas
 	//var root []byte
-	receipt := &types.Receipt{Type: vpr.Tx.Type(), PostState: root, CumulativeGasUsed: 0 /**TODO: usedGas*/}
+	receipt := &types.Receipt{Type: vpr.Tx.Type(), PostState: root, CumulativeGasUsed: cumulativeGasUsed}
 
 	// Set the receipt logs and create the bloom filter.
 	receipt.Logs = statedb.GetLogs(vpr.Tx.Hash(), blockNumber.Uint64(), blockHash)
@@ -570,11 +580,12 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 }
 
 type ValidationPhaseResult struct {
-	Tx                *types.Transaction
-	Thash             common.Hash
-	paymasterContext  []byte
-	validationGasUsed uint64
-	paymasterGasUsed  uint64
+	Tx                  *types.Transaction
+	Thash               common.Hash
+	PaymasterContext    []byte
+	DeploymentUsedGas   uint64
+	ValidationUsedGas   uint64
+	PmValidationUsedGas uint64
 }
 
 func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
