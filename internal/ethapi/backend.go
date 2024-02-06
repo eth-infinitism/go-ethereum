@@ -19,6 +19,7 @@ package ethapi
 
 import (
 	"context"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	"math/big"
 	"time"
 
@@ -97,6 +98,9 @@ type Backend interface {
 	SubscribePendingLogsEvent(ch chan<- []*types.Log) event.Subscription
 	BloomStatus() (uint64, uint64)
 	ServiceFilter(ctx context.Context, session *bloombits.MatcherSession)
+
+	// SubmitBundle TODO: preferably we should not to add methods to the Backend interface
+	SubmitBundle(bundle *txpool.ExternallyReceivedBundle) error
 }
 
 func GetAPIs(apiBackend Backend) []rpc.API {

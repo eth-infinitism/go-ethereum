@@ -34,6 +34,8 @@ type AlexfAccountAbstractionPool struct {
 
 	incoming map[common.Hash][]*types.Transaction // transactions that were not validated yet
 
+	externalBundles []*txpool.ExternallyReceivedBundle
+
 	nonces *BigNoncer
 
 	// stuff needed to run the tracer on validation code
@@ -73,6 +75,29 @@ func (pool *AlexfAccountAbstractionPool) promoteTx(addr common.Address, hash com
 // executable/pending queue and any subsequent transactions that become unexecutable
 // are moved back into the future queue.
 func (pool *AlexfAccountAbstractionPool) demoteUnexecutables() {
+	// start copy-paste "nonce getter" code for bundles
+	for _, bundle := range pool.externalBundles {
+		tx := bundle.Transactions[0]
+		sender := *tx.AlexfAATransactionData().Sender
+		// todo: rewrite
+		aatx := tx.AlexfAATransactionData()
+		nonceKey := new(big.Int)
+		nonceKey.Set(aatx.BigNonce)
+		nonceKey = nonceKey.Rsh(nonceKey, 64)
+		nonceValue := aatx.BigNonce.Uint64()
+		header := pool.currentHead.Load()
+		gaspool := new(core.GasPool)
+		statedb, _ := pool.chain.State()
+		currentValue := core.GetNonce(
+			pool.chainConfig, pool.chain, &header.Coinbase, gaspool, statedb, header, tx, *pool.chain.GetVMConfig(),
+			sender, nonceKey)
+		if nonceValue < currentValue {
+			fmt.Printf("\nALEXF: !! Dropping a bundle !!")
+			pool.externalBundles = make([]*txpool.ExternallyReceivedBundle, 0)
+		}
+	}
+	// end copy-paste "nonce getter" code for bundles
+
 	for sender, transactions := range pool.pending {
 		for index, tx := range transactions {
 			// todo: rewrite
@@ -105,6 +130,7 @@ func (pool *AlexfAccountAbstractionPool) Init(gasTip *big.Int, head *types.Heade
 	}
 	pool.pending = make(map[common.Address][]*types.Transaction)
 	pool.pendingByHash = make(map[common.Hash]*types.Transaction)
+	pool.externalBundles = make([]*txpool.ExternallyReceivedBundle, 0)
 	pool.currentHead.Store(head)
 	//TODO implement me
 	//panic("implement me")
@@ -193,10 +219,13 @@ func (pool *AlexfAccountAbstractionPool) Add(txs []*types.Transaction, local boo
 	return errs
 }
 
+//goland:noinspection GoUnreachableCode
 func (pool *AlexfAccountAbstractionPool) add(tx *types.Transaction) error {
 	if tx.Type() != types.ALEXF_AA_TX_TYPE {
 		return nil
 	}
+	// todo: implement full transaction tracing and validation to enable adding txs from mempool
+	panic("adding individual Type 4 transactions is disabled")
 	//fmt.Printf("\nALEXF: Adding AA transaction to mempool %s %d\n", tx.Hash(), tx.Nonce())
 	err := pool.validateTransaction(tx)
 	if err != nil {
@@ -214,10 +243,15 @@ func (pool *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Ad
 	defer pool.mu.Unlock()
 
 	pending := make(map[common.Address][]*txpool.LazyTransaction)
-	for sender, txs := range pool.pending {
-		lts := make([]*txpool.LazyTransaction, len(txs))
-		for i, tx := range txs {
-			lts[i] = &txpool.LazyTransaction{
+
+	selectedBundle := pool.selectExternalBundle()
+
+	if selectedBundle != nil {
+		for _, tx := range selectedBundle.Transactions {
+			// TODO: strongly assuming one tx per sender in bundler here...
+			sender := tx.AlexfAATransactionData().Sender
+			lts := make([]*txpool.LazyTransaction, 1)
+			lts[0] = &txpool.LazyTransaction{
 				Pool:      pool,
 				Hash:      tx.Hash(),
 				Tx:        tx,
@@ -227,8 +261,25 @@ func (pool *AlexfAccountAbstractionPool) Pending(enforceTips bool) map[common.Ad
 				Gas:       tx.Gas(),
 				BlobGas:   tx.BlobGas(),
 			}
+			pending[*sender] = lts
 		}
-		pending[sender] = lts
+	} else {
+		for sender, txs := range pool.pending {
+			lts := make([]*txpool.LazyTransaction, len(txs))
+			for i, tx := range txs {
+				lts[i] = &txpool.LazyTransaction{
+					Pool:      pool,
+					Hash:      tx.Hash(),
+					Tx:        tx,
+					Time:      tx.Time(),
+					GasFeeCap: tx.GasFeeCap(),
+					GasTipCap: tx.GasTipCap(),
+					Gas:       tx.Gas(),
+					BlobGas:   tx.BlobGas(),
+				}
+			}
+			pending[sender] = lts
+		}
 	}
 	fmt.Printf("\nALEXF: AAPool Pending len= %d\n", len(pending))
 	return pending
@@ -295,4 +346,16 @@ func (pool *AlexfAccountAbstractionPool) Filter(tx *types.Transaction) bool {
 // get returns a transaction if it is contained in the pool and nil otherwise.
 func (pool *AlexfAccountAbstractionPool) get(hash common.Hash) *types.Transaction {
 	return pool.pendingByHash[hash]
+}
+
+func (pool *AlexfAccountAbstractionPool) SubmitBundle(bundle *txpool.ExternallyReceivedBundle) {
+	pool.externalBundles = append(pool.externalBundles, bundle)
+}
+
+func (pool *AlexfAccountAbstractionPool) selectExternalBundle() *txpool.ExternallyReceivedBundle {
+	if len(pool.externalBundles) > 0 {
+		// TODO: how (and when?) do I remove a "selected" bundle?
+		return pool.externalBundles[0]
+	}
+	return nil
 }

@@ -792,7 +792,7 @@ func (w *worker) applyTransaction(env *environment, tx *types.Transaction) (*typ
 	return receipt, err
 }
 
-func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
+func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transactionsByPriceAndNonce, isBundle bool, interrupt *atomic.Int32) error {
 
 	// todo: copied over to fix crash, probably should do it once
 	gasLimit := env.header.GasLimit
@@ -809,6 +809,16 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 		// Retrieve the next transaction and abort if all done.
 		ltx := txs.Peek()
 		if ltx == nil {
+			break
+		}
+
+		// If we don't have enough gas for any further transactions then we're done.
+		// If we are adding Type 4 transactions that were received as a bundle this is an illegal state.
+		if env.gasPool.Gas() < params.TxGas {
+			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
+			if isBundle {
+				return errors.New("specified Type 4 transaction bundle does not fit the current block's gas pool")
+			}
 			break
 		}
 
@@ -1062,7 +1072,7 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 		pending2 := w.eth.TxPool().Pending(true)
 		// TODO: use AA-specific function to respect big nonce field
 		txs := newTransactionsByPriceAndNonce(env.signer, pending2, env.header.BaseFee)
-		if err := w.commitBatchAlexfAATransactions(env, txs, interrupt); err != nil {
+		if err := w.commitBatchAlexfAATransactions(env, txs, true, interrupt); err != nil {
 			return err
 		}
 	}

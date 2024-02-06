@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	"math/big"
 	"strings"
 	"time"
@@ -1857,6 +1858,11 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 	return wallet.SignTx(account, tx, s.b.ChainConfig().ChainID)
 }
 
+// SubmitBundle is a helper function that submits a bundle of Type 4 transactions to txPool and logs a message.
+func SubmitBundle(ctx context.Context, b Backend, bundle *txpool.ExternallyReceivedBundle) error {
+	return b.SubmitBundle(bundle)
+}
+
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
 	// If the transaction fee cap is already specified, ensure the
@@ -1923,6 +1929,24 @@ func (s *TransactionAPI) SendTransaction(ctx context.Context, args TransactionAr
 		return common.Hash{}, err
 	}
 	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []TransactionArgs, creationBlock *big.Int, expectedRevenue *big.Int, bundlerId string) error {
+	txs := make([]*types.Transaction, len(args))
+	for i := 0; i < len(args); i++ {
+		txs[i] = args[i].toTransaction()
+	}
+	bundle := &txpool.ExternallyReceivedBundle{
+		bundlerId,
+		expectedRevenue,
+		creationBlock,
+		txs,
+	}
+	err := SubmitBundle(ctx, s.b, bundle)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // FillTransaction fills the defaults (nonce, gas, gasPrice or 1559 fields)

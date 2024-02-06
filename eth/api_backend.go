@@ -291,6 +291,11 @@ func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction)
 	return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
 }
 
+func (b *EthAPIBackend) SubmitBundle(bundle *txpool.ExternallyReceivedBundle) error {
+	return b.eth.txPool.SubmitBundle(bundle)
+	//return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
+}
+
 func (b *EthAPIBackend) GetPoolTransactions() (types.Transactions, error) {
 	pending := b.eth.txPool.Pending(false)
 	var txs types.Transactions

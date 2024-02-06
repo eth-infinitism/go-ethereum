@@ -260,6 +260,24 @@ func (p *TxPool) Get(hash common.Hash) *types.Transaction {
 	return nil
 }
 
+// ExternallyReceivedBundle represents a bundle of Type 4 transactions received from a trusted 3rd party.
+// The validator includes the bundle in the original order atomically or drops it completely.
+type ExternallyReceivedBundle struct {
+	BundlerId       string
+	ExpectedRevenue *big.Int
+	CreationBlock   *big.Int
+	Transactions    []*types.Transaction
+}
+
+// SubmitBundle inserts the entire bundle of Type 4 transactions into the relevant pool.
+func (p *TxPool) SubmitBundle(bundle *ExternallyReceivedBundle) error {
+	// todo: we cannot 'filter-out' the AA pool so just passing to all pools - only AA pool has code in SubmitBundle
+	for _, subpool := range p.subpools {
+		subpool.SubmitBundle(bundle)
+	}
+	return nil
+}
+
 // Add enqueues a batch of transactions into the pool if they are valid. Due
 // to the large transaction churn, add may postpone fully integrating the tx
 // to a later point to batch multiple ones together.
