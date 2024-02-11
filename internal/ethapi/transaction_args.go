@@ -328,12 +328,10 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		data = &aatx
 		fmt.Printf("\nALEXF Type-4 transaction created:\n"+
 			"Sender: %s\n"+
-			"Target: %s\n"+
 			"Signature: %s\n"+
 			"PaymasterData: %s\n"+
 			"DeployerData: %s\n",
 			aatx.Sender.Hex(),
-			aatx.To.Hex(),
 			hex.EncodeToString(aatx.Signature),
 			hex.EncodeToString(aatx.PaymasterData),
 			hex.EncodeToString(aatx.DeployerData),

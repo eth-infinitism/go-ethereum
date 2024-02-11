@@ -32,7 +32,6 @@ type AlexfAccountAbstractionTx struct {
 	GasTipCap  *big.Int // a.k.a. maxPriorityFeePerGas
 	GasFeeCap  *big.Int // a.k.a. maxFeePerGas
 	Gas        uint64
-	To         *common.Address
 	Data       []byte
 	AccessList AccessList
 
@@ -47,6 +46,7 @@ type AlexfAccountAbstractionTx struct {
 	BigNonce      *big.Int // AA nonce is 256 bits wide
 
 	// removed fields
+	To    *common.Address
 	Nonce uint64
 	Value *big.Int
 	// Signature values

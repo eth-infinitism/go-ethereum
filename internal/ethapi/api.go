@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/txpool"
+	"golang.org/x/crypto/sha3"
 	"math/big"
 	"strings"
 	"time"
@@ -1931,22 +1932,43 @@ func (s *TransactionAPI) SendTransaction(ctx context.Context, args TransactionAr
 	return SubmitTransaction(ctx, s.b, signed)
 }
 
-func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []TransactionArgs, creationBlock *big.Int, expectedRevenue *big.Int, bundlerId string) error {
+func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []TransactionArgs, creationBlock *big.Int, expectedRevenue *big.Int, bundlerId string) (common.Hash, error) {
+	if len(args) == 0 {
+		return common.Hash{}, errors.New("submitted bundle has zero length")
+	}
 	txs := make([]*types.Transaction, len(args))
 	for i := 0; i < len(args); i++ {
 		txs[i] = args[i].toTransaction()
 	}
 	bundle := &txpool.ExternallyReceivedBundle{
-		bundlerId,
-		expectedRevenue,
-		creationBlock,
-		txs,
+		BundlerId:       bundlerId,
+		ExpectedRevenue: expectedRevenue,
+		CreationBlock:   creationBlock,
+		Transactions:    txs,
 	}
 	err := SubmitBundle(ctx, s.b, bundle)
 	if err != nil {
-		return err
+		return common.Hash{}, err
 	}
-	return nil
+	bundleHash := calculateBundleHash(txs)
+	return bundleHash, nil
+}
+
+// TODO: If this code is indeed necessary, keep it in utils; better - remove altogether.
+func calculateBundleHash(txs []*types.Transaction) common.Hash {
+	appendedTxIds := make([]byte, 0)
+	for _, tx := range txs {
+		txHash := tx.Hash()
+		appendedTxIds = append(appendedTxIds, txHash[:]...)
+	}
+
+	return rlpHash(appendedTxIds)
+}
+func rlpHash(x interface{}) (h common.Hash) {
+	hw := sha3.NewLegacyKeccak256()
+	rlp.Encode(hw, x)
+	hw.Sum(h[:0])
+	return h
 }
 
 // FillTransaction fills the defaults (nonce, gas, gasPrice or 1559 fields)
