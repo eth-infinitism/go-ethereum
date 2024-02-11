@@ -188,8 +188,8 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 	return big.NewInt(0).SetBytes(resultNonceManager.ReturnData).Uint64()
 }
 
-// todo: describe - signing hash is made with empty array instead of signature
-func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionTx, thash common.Hash, signingHash common.Hash, evm *vm.EVM, gp *GasPool, time uint64, statedb *state.StateDB, author *common.Address) (*ValidationPhaseResult, error) {
+// ApplyAlexfAATransactionValidationPhaseInternal todo: describe - signing hash is made with empty array instead of signature
+func ApplyAlexfAATransactionValidationPhaseInternal(tx *types.Transaction, evm *vm.EVM, gp *GasPool /* thash common.Hash, signingHash common.Hash, time uint64, statedb *state.StateDB, author *common.Address*/) (*ValidationPhaseResult, error) {
 	jsondata := `[
 	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]},
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
@@ -206,6 +206,7 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	nonceManager := common.HexToAddress("0xdebc121d1b09bc03ff57fa1f96514d04a1f0f59d")
 	nonceManagerData := make([]byte, 0)
 	key := make([]byte, 32)
+	aatx := tx.AlexfAATransactionData()
 	fromBig, _ := uint256.FromBig(aatx.BigNonce)
 	fromBig.WriteToSlice(key)
 
@@ -234,8 +235,8 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	}
 
 	fmt.Printf("ALEXF AA resultNonceManager : %d %t\n", resultNonceManager.UsedGas, resultNonceManager.Failed())
-	root := statedb.IntermediateRoot(true).Bytes()
-	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
+	//root := statedb.IntermediateRoot(true).Bytes()
+	//fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
 	var deploymentUsedGas uint64
 	if len(aatx.DeployerData) >= 20 {
@@ -265,11 +266,13 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			}
 			deploymentUsedGas = resultDeployer.UsedGas
 			fmt.Printf("ALEXF AA resultDeployer: %s\n", common.Bytes2Hex(resultDeployer.ReturnData))
-			root := statedb.IntermediateRoot(true).Bytes()
-			fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
+			//root := statedb.IntermediateRoot(true).Bytes()
+			//fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 		}
 	}
-
+	signer := types.MakeSigner(evm.ChainConfig(), new(big.Int), 0)
+	signingHash := signer.Hash(tx)
+	log.Error(signingHash.Hex())
 	txAbiEncoding, err := aatx.AbiEncode()
 	validateTransactionData, err := validateTransactionAbi.Pack("validateTransaction", big.NewInt(0), signingHash, txAbiEncoding)
 	accountValidationMsg := &Message{
@@ -292,16 +295,24 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 	if resultAccountValidation.Err != nil {
 		return nil, resultAccountValidation.Err
 	}
-	err = validateAccountReturnData(resultAccountValidation.ReturnData, time)
+	validAfter, validUntil, err := validateAccountReturnData(resultAccountValidation.ReturnData)
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO: validate Sender, Paymaster time ranges!
+	//err = validateValidityTimeRange(time, validAfter, validUntil)
+	//if err != nil {
+	//	return err
+	//}
 	fmt.Printf("\nALEXF AA resultAccountValidation: %s\n", hex.EncodeToString(resultAccountValidation.ReturnData))
-	root = statedb.IntermediateRoot(true).Bytes()
-	fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
+	//root = statedb.IntermediateRoot(true).Bytes()
+	//fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 
 	var pmValidationUsedGas uint64
 	var paymasterContext []byte
+	var pmValidAfter uint64
+	var pmValidUntil uint64
 	if len(aatx.PaymasterData) >= 20 {
 		data, err := validateTransactionAbi.Pack("validatePaymasterTransaction", big.NewInt(0), signingHash, txAbiEncoding)
 
@@ -335,14 +346,17 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 			return nil, errors.New("paymaster validation failed - invalid transaction")
 		}
 		pmValidationUsedGas = resultPm.UsedGas
-		paymasterContext, err = validatePaymasterReturnData(resultPm.ReturnData, time)
+		paymasterContext, pmValidAfter, pmValidUntil, err = validatePaymasterReturnData(resultPm.ReturnData)
 		if err != nil {
 			return nil, err
 		}
 		fmt.Printf("\nALEXF AA resultPaymasterValidation: %s\n", hex.EncodeToString(paymasterContext))
-		root := statedb.IntermediateRoot(true).Bytes()
-		fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
+		//root := statedb.IntermediateRoot(true).Bytes()
+		//fmt.Printf("IntermediateRoot : %s\n", common.Bytes2Hex(root))
 	}
+
+	thash := tx.Hash()
+	log.Error(thash.Hex())
 
 	vpr := &ValidationPhaseResult{
 		PaymasterContext:    paymasterContext,
@@ -350,28 +364,28 @@ func applyAlexfAATransactionValidationPhase(aatx *types.AlexfAccountAbstractionT
 		DeploymentUsedGas:   deploymentUsedGas,
 		ValidationUsedGas:   resultAccountValidation.UsedGas,
 		PmValidationUsedGas: pmValidationUsedGas,
+		SenderValidAfter:    validAfter,
+		SenderValidUntil:    validUntil,
+		PmValidAfter:        pmValidAfter,
+		PmValidUntil:        pmValidUntil,
 	}
 
 	return vpr, nil
 }
 
-func validateAccountReturnData(data []byte, time uint64) error {
+func validateAccountReturnData(data []byte) (uint64, uint64, error) {
 	// abi.encodePacked(MAGIC_VALUE_SENDER, validUntil, validAfter)
 	MAGIC_VALUE_SENDER := uint32(0xbf45c166)
 	if len(data) != 32 {
-		return errors.New("invalid account return data length")
+		return 0, 0, errors.New("invalid account return data length")
 	}
 	magicExpected := binary.BigEndian.Uint32(data[:4])
 	if magicExpected != MAGIC_VALUE_SENDER {
-		return errors.New("account did not return correct MAGIC_VALUE")
+		return 0, 0, errors.New("account did not return correct MAGIC_VALUE")
 	}
 	validAfter := binary.BigEndian.Uint64(data[4:12])
 	validUntil := binary.BigEndian.Uint64(data[12:20])
-	err := validateValidityTimeRange(time, validAfter, validUntil)
-	if err != nil {
-		return err
-	}
-	return nil
+	return validAfter, validUntil, nil
 }
 
 //type PaymasterReturnData struct {
@@ -383,15 +397,15 @@ func validateAccountReturnData(data []byte, time uint64) error {
 // TODO: update the RIP text itself - starts with 'MAGIC_VALUE_PAYMASTER' 4 byte sig
 //
 //	it is generally confusing that account uses abi.encodePacked() while paymaster uses abi.encode()
-func validatePaymasterReturnData(data []byte, time uint64) ([]byte, error) {
+func validatePaymasterReturnData(data []byte) ([]byte, uint64, uint64, error) {
 	// abi.encode(context, MAGIC_VALUE_PAYMASTER, validUntil, validAfter)
 	MAGIC_VALUE_PAYMASTER := uint32(0xe0e6183a)
 	if len(data) < 4 {
-		return nil, errors.New("invalid paymaster return data length")
+		return nil, 0, 0, errors.New("invalid paymaster return data length")
 	}
 	magicExpected := binary.BigEndian.Uint32(data[:4])
 	if magicExpected != MAGIC_VALUE_PAYMASTER {
-		return nil, errors.New("paymaster did not return correct MAGIC_VALUE")
+		return nil, 0, 0, errors.New("paymaster did not return correct MAGIC_VALUE")
 	}
 
 	jsondata := `[
@@ -400,20 +414,16 @@ func validatePaymasterReturnData(data []byte, time uint64) ([]byte, error) {
 	validatePaymasterTransactionAbi, err := abi.JSON(strings.NewReader(jsondata))
 	if err != nil {
 		// todo: wrap error message
-		return nil, err
+		return nil, 0, 0, err
 	}
 	decodedPmReturnData, err := validatePaymasterTransactionAbi.Unpack("validatePaymasterTransaction", data[4:])
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	context := decodedPmReturnData[0].([]byte)
 	validAfter := decodedPmReturnData[1].(*big.Int)
 	validUntil := decodedPmReturnData[2].(*big.Int)
-	err = validateValidityTimeRange(time, validAfter.Uint64(), validUntil.Uint64())
-	if err != nil {
-		return nil, err
-	}
-	return context, nil
+	return context, validAfter.Uint64(), validUntil.Uint64(), nil
 }
 
 func validateValidityTimeRange(time uint64, validAfter uint64, validUntil uint64) error {
@@ -586,16 +596,15 @@ type ValidationPhaseResult struct {
 	DeploymentUsedGas   uint64
 	ValidationUsedGas   uint64
 	PmValidationUsedGas uint64
+	SenderValidAfter    uint64
+	SenderValidUntil    uint64
+	PmValidAfter        uint64
+	PmValidUntil        uint64
 }
 
 func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
 	log.Info("ALEXF: applying transaction validation phase, signingHash: txhash:")
 	signer := types.MakeSigner(config, header.Number, header.Time)
-	thash := tx.Hash()
-	signingHash := signer.Hash(tx)
-	log.Error(signingHash.Hex())
-	log.Error(thash.Hex())
-	aatx := tx.AlexfAATransactionData()
 
 	blockContext := NewEVMBlockContext(header, bc, author)
 	message, err := TransactionToMessage(tx, signer, header.BaseFee)
@@ -603,12 +612,12 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 	vmenv.Reset(txContext, statedb) // TODO what does this 'reset' do?
 
-	root := statedb.IntermediateRoot(true).Bytes()
-	fmt.Printf("IntermediateRoot (before validation): %s\n", common.Bytes2Hex(root))
+	//root := statedb.IntermediateRoot(true).Bytes()
+	//fmt.Printf("IntermediateRoot (before validation): %s\n", common.Bytes2Hex(root))
 
 	// Validation phase
-	vpr, err := applyAlexfAATransactionValidationPhase(aatx, thash, signingHash, vmenv, gp, header.Time, statedb, author)
-	fmt.Printf("IntermediateRoot (after validation): %s\n", common.Bytes2Hex(root))
+	vpr, err := ApplyAlexfAATransactionValidationPhaseInternal(tx, vmenv, gp /*, header.Time, statedb, author*/)
+	//fmt.Printf("IntermediateRoot (after validation): %s\n", common.Bytes2Hex(root))
 	if err != nil {
 		return nil, err
 	}

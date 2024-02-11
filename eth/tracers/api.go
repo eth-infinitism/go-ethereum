@@ -276,7 +276,7 @@ func (api *API) traceChain(start, end *types.Block, config *TraceConfig, closed 
 						TxIndex:     i,
 						TxHash:      tx.Hash(),
 					}
-					res, err := api.traceTx(ctx, msg, txctx, blockCtx, task.statedb, config)
+					res, err := api.traceTx(ctx, msg, txctx, blockCtx, task.statedb, config, nil)
 					if err != nil {
 						task.results[i] = &txTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
@@ -611,7 +611,7 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 			TxIndex:     i,
 			TxHash:      tx.Hash(),
 		}
-		res, err := api.traceTx(ctx, msg, txctx, blockCtx, statedb, config)
+		res, err := api.traceTx(ctx, msg, txctx, blockCtx, statedb, config, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -654,7 +654,7 @@ func (api *API) traceBlockParallel(ctx context.Context, block *types.Block, stat
 					TxIndex:     task.index,
 					TxHash:      txs[task.index].Hash(),
 				}
-				res, err := api.traceTx(ctx, msg, txctx, blockCtx, task.statedb, config)
+				res, err := api.traceTx(ctx, msg, txctx, blockCtx, task.statedb, config, nil)
 				if err != nil {
 					results[task.index] = &txTraceResult{TxHash: txs[task.index].Hash(), Error: err.Error()}
 					continue
@@ -857,13 +857,21 @@ func (api *API) TraceTransaction(ctx context.Context, hash common.Hash, config *
 		TxIndex:     int(index),
 		TxHash:      hash,
 	}
-	return api.traceTx(ctx, msg, txctx, vmctx, statedb, config)
+	return api.traceTx(ctx, msg, txctx, vmctx, statedb, config, nil)
+}
+
+func (api *API) TraceAATransactionsValidations(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *TraceCallConfig) (interface{}, error) {
+	return api.traceCallInternal(ctx, args, blockNrOrHash, config)
 }
 
 // TraceCall lets you trace a given eth_call. It collects the structured logs
 // created during the execution of EVM if the given transaction was added on
 // top of the provided block and returns them as a JSON object.
 func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *TraceCallConfig) (interface{}, error) {
+	return api.traceCallInternal(ctx, args, blockNrOrHash, config)
+}
+
+func (api *API) traceCallInternal(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *TraceCallConfig) (interface{}, error) {
 	// Try to retrieve the specified block
 	var (
 		err   error
@@ -916,13 +924,13 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 	if config != nil {
 		traceConfig = &config.TraceConfig
 	}
-	return api.traceTx(ctx, msg, new(Context), vmctx, statedb, traceConfig)
+	return api.traceTx(ctx, msg, new(Context), vmctx, statedb, traceConfig, &args)
 }
 
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *API) traceTx(ctx context.Context, message *core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig) (interface{}, error) {
+func (api *API) traceTx(ctx context.Context, message *core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, args *ethapi.TransactionArgs) (interface{}, error) {
 	var (
 		tracer    Tracer
 		err       error
@@ -961,6 +969,13 @@ func (api *API) traceTx(ctx context.Context, message *core.Message, txctx *Conte
 
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
+	if args != nil {
+		tx := args.ToTransaction()
+		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+			_, err = core.ApplyAlexfAATransactionValidationPhaseInternal(tx, vmenv, new(core.GasPool).AddGas(25000000))
+			return tracer.GetResult()
+		}
+	}
 	if _, err = core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.GasLimit)); err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}
