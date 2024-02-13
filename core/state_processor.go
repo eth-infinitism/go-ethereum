@@ -89,13 +89,13 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// TODO: this is not correct in general as AA transactions can be anywhere in a block
 	verifiedAATransactions := make([]*ValidationPhaseResult, 0)
 	for i, tx := range block.Transactions() {
-		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+		if tx.Type() == types.Rip7560Type {
 			statedb.SetTxContext(tx.Hash(), i) // todo: 'i' is not correct as well if other transactions are in a block!
-			err := BuyGasAATransaction(tx.AlexfAATransactionData(), statedb)
+			err := BuyGasAATransaction(tx.Rip7560TransactionData(), statedb)
 			if err != nil {
 				return nil, nil, 0, err
 			}
-			vpr, err := ApplyAlexfAATransactionValidationPhase(p.config, p.bc, &context.Coinbase, gp, statedb, header, tx, cfg)
+			vpr, err := ApplyRip7560TransactionValidationPhase(p.config, p.bc, &context.Coinbase, gp, statedb, header, tx, cfg)
 			if err != nil {
 				return nil, nil, 0, err
 			}
@@ -107,7 +107,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		// TODO: this will miss all validation phase events - pass in 'vpr'
 		statedb.SetTxContext(vpr.Tx.Hash(), i)
 
-		receipt, err := ApplyAlexfAATransactionExecutionPhase(p.config, vpr, blockNumber, blockHash, p.bc, &context.Coinbase, gp, statedb, header, cfg)
+		receipt, err := ApplyRip7560TransactionExecutionPhase(p.config, vpr, blockNumber, blockHash, p.bc, &context.Coinbase, gp, statedb, header, cfg)
 		if err != nil {
 			return nil, nil, 0, err
 		}
@@ -116,7 +116,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	}
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
-		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+		if tx.Type() == types.Rip7560Type {
 			continue
 		}
 		msg, err := TransactionToMessage(tx, signer, header.BaseFee)
@@ -188,8 +188,8 @@ func GetNonce(config *params.ChainConfig, bc ChainContext, author *common.Addres
 	return big.NewInt(0).SetBytes(resultNonceManager.ReturnData).Uint64()
 }
 
-// ApplyAlexfAATransactionValidationPhaseInternal todo: describe - signing hash is made with empty array instead of signature
-func ApplyAlexfAATransactionValidationPhaseInternal(tx *types.Transaction, evm *vm.EVM, gp *GasPool /* thash common.Hash, signingHash common.Hash, time uint64, statedb *state.StateDB, author *common.Address*/) (*ValidationPhaseResult, error) {
+// ApplyRip7560AATransactionValidationPhaseInternal todo: describe - signing hash is made with empty array instead of signature
+func ApplyRip7560AATransactionValidationPhaseInternal(tx *types.Transaction, evm *vm.EVM, gp *GasPool /* thash common.Hash, signingHash common.Hash, time uint64, statedb *state.StateDB, author *common.Address*/) (*ValidationPhaseResult, error) {
 	jsondata := `[
 	{"type":"function","name":"validateTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]},
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
@@ -206,7 +206,7 @@ func ApplyAlexfAATransactionValidationPhaseInternal(tx *types.Transaction, evm *
 	nonceManager := common.HexToAddress("0xdebc121d1b09bc03ff57fa1f96514d04a1f0f59d")
 	nonceManagerData := make([]byte, 0)
 	key := make([]byte, 32)
-	aatx := tx.AlexfAATransactionData()
+	aatx := tx.Rip7560TransactionData()
 	fromBig, _ := uint256.FromBig(aatx.BigNonce)
 	fromBig.WriteToSlice(key)
 
@@ -442,8 +442,8 @@ func validateValidityTimeRange(time uint64, validAfter uint64, validUntil uint64
 	return nil
 }
 
-func applyAlexfAATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
-	aatx := vpr.Tx.AlexfAATransactionData()
+func applyRip7560AATransactionExecutionPhase(vpr *ValidationPhaseResult, evm *vm.EVM, statedb *state.StateDB, gp *GasPool, blockNumber *big.Int, blockHash common.Hash) (*types.Receipt, error) {
+	aatx := vpr.Tx.Rip7560TransactionData()
 
 	entryPoint := common.HexToAddress("0x7560000000000000000000000000000000007560")
 	accountExecutionMsg := &Message{
@@ -602,7 +602,7 @@ type ValidationPhaseResult struct {
 	PmValidUntil        uint64
 }
 
-func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
+func ApplyRip7560TransactionValidationPhase(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
 	log.Info("ALEXF: applying transaction validation phase, signingHash: txhash:")
 	signer := types.MakeSigner(config, header.Number, header.Time)
 
@@ -616,7 +616,7 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	//fmt.Printf("IntermediateRoot (before validation): %s\n", common.Bytes2Hex(root))
 
 	// Validation phase
-	vpr, err := ApplyAlexfAATransactionValidationPhaseInternal(tx, vmenv, gp /*, header.Time, statedb, author*/)
+	vpr, err := ApplyRip7560AATransactionValidationPhaseInternal(tx, vmenv, gp /*, header.Time, statedb, author*/)
 	//fmt.Printf("IntermediateRoot (after validation): %s\n", common.Bytes2Hex(root))
 	if err != nil {
 		return nil, err
@@ -627,7 +627,7 @@ func ApplyAlexfAATransactionValidationPhase(config *params.ChainConfig, bc Chain
 	return vpr, nil
 }
 
-func ApplyAlexfAATransactionExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, blockNumber *big.Int, blockHash common.Hash, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+func ApplyRip7560TransactionExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, blockNumber *big.Int, blockHash common.Hash, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
 	log.Error("ALEXF: applying transaction execution phase")
 	log.Error(vpr.Tx.Hash().Hex())
 
@@ -641,7 +641,7 @@ func ApplyAlexfAATransactionExecutionPhase(config *params.ChainConfig, vpr *Vali
 		return nil, err
 	}
 
-	return applyAlexfAATransactionExecutionPhase(vpr, vmenv, statedb, gp, blockNumber, blockHash)
+	return applyRip7560AATransactionExecutionPhase(vpr, vmenv, statedb, gp, blockNumber, blockHash)
 }
 
 // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root

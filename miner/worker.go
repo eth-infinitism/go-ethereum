@@ -814,11 +814,11 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 		}
 
 		env.state.SetTxContext(tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
-		err := core.BuyGasAATransaction(tx.AlexfAATransactionData(), env.state)
+		err := core.BuyGasAATransaction(tx.Rip7560TransactionData(), env.state)
 		if err != nil {
 			return err
 		}
-		vpr, err := core.ApplyAlexfAATransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
+		vpr, err := core.ApplyRip7560TransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
 		if err != nil {
 			// todo: handle "invalidated" transaction - drop from mempool and continue loop
 			return err
@@ -829,7 +829,7 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 	}
 	for _, vpr := range verifiedAATransactions {
 		env.state.SetTxContext(vpr.Tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
-		receipt, err := core.ApplyAlexfAATransactionExecutionPhase(w.chainConfig, vpr, env.header.Number, env.header.Hash(), w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
+		receipt, err := core.ApplyRip7560TransactionExecutionPhase(w.chainConfig, vpr, env.header.Number, env.header.Hash(), w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
 		if err != nil {
 			return err
 		}
@@ -882,7 +882,7 @@ func (w *worker) commitTransactions(env *environment, txs *transactionsByPriceAn
 			continue
 		}
 
-		if tx.Type() == types.ALEXF_AA_TX_TYPE {
+		if tx.Type() == types.Rip7560Type {
 			log.Error("ALEXF: skipping an AA transaction in 'commitTransactions' function")
 			txs.Pop()
 			continue

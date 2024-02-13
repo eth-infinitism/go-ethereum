@@ -25,8 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-// AlexfAccountAbstractionTx represents an RIP-7560 transaction.
-type AlexfAccountAbstractionTx struct {
+// Rip7560AccountAbstractionTx represents an RIP-7560 transaction.
+type Rip7560AccountAbstractionTx struct {
 	// overlapping fields
 	ChainID    *big.Int
 	GasTipCap  *big.Int // a.k.a. maxPriorityFeePerGas
@@ -56,8 +56,8 @@ type AlexfAccountAbstractionTx struct {
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
-func (tx *AlexfAccountAbstractionTx) copy() TxData {
-	cpy := &AlexfAccountAbstractionTx{
+func (tx *Rip7560AccountAbstractionTx) copy() TxData {
+	cpy := &Rip7560AccountAbstractionTx{
 		To:   copyAddressPtr(tx.To),
 		Data: common.CopyBytes(tx.Data),
 		Gas:  tx.Gas,
@@ -100,20 +100,20 @@ func (tx *AlexfAccountAbstractionTx) copy() TxData {
 }
 
 // accessors for innerTx.
-func (tx *AlexfAccountAbstractionTx) txType() byte           { return ALEXF_AA_TX_TYPE }
-func (tx *AlexfAccountAbstractionTx) chainID() *big.Int      { return tx.ChainID }
-func (tx *AlexfAccountAbstractionTx) accessList() AccessList { return tx.AccessList }
-func (tx *AlexfAccountAbstractionTx) data() []byte           { return tx.Data }
-func (tx *AlexfAccountAbstractionTx) gas() uint64            { return tx.Gas }
-func (tx *AlexfAccountAbstractionTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
-func (tx *AlexfAccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTipCap }
-func (tx *AlexfAccountAbstractionTx) gasPrice() *big.Int     { return tx.GasFeeCap }
-func (tx *AlexfAccountAbstractionTx) value() *big.Int        { return tx.Value }
-func (tx *AlexfAccountAbstractionTx) nonce() uint64          { return 0 }
-func (tx *AlexfAccountAbstractionTx) bigNonce() *big.Int     { return tx.BigNonce }
-func (tx *AlexfAccountAbstractionTx) to() *common.Address    { return tx.To }
+func (tx *Rip7560AccountAbstractionTx) txType() byte           { return Rip7560Type }
+func (tx *Rip7560AccountAbstractionTx) chainID() *big.Int      { return tx.ChainID }
+func (tx *Rip7560AccountAbstractionTx) accessList() AccessList { return tx.AccessList }
+func (tx *Rip7560AccountAbstractionTx) data() []byte           { return tx.Data }
+func (tx *Rip7560AccountAbstractionTx) gas() uint64            { return tx.Gas }
+func (tx *Rip7560AccountAbstractionTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
+func (tx *Rip7560AccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTipCap }
+func (tx *Rip7560AccountAbstractionTx) gasPrice() *big.Int     { return tx.GasFeeCap }
+func (tx *Rip7560AccountAbstractionTx) value() *big.Int        { return tx.Value }
+func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return 0 }
+func (tx *Rip7560AccountAbstractionTx) bigNonce() *big.Int     { return tx.BigNonce }
+func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return tx.To }
 
-func (tx *AlexfAccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)
 	}
@@ -124,24 +124,24 @@ func (tx *AlexfAccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *bi
 	return tip.Add(tip, baseFee)
 }
 
-func (tx *AlexfAccountAbstractionTx) rawSignatureValues() (v, r, s *big.Int) {
+func (tx *Rip7560AccountAbstractionTx) rawSignatureValues() (v, r, s *big.Int) {
 	return new(big.Int), new(big.Int), new(big.Int)
 }
 
-func (tx *AlexfAccountAbstractionTx) setSignatureValues(chainID, v, r, s *big.Int) {
+func (tx *Rip7560AccountAbstractionTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	//tx.ChainID, tx.V, tx.R, tx.S = chainID, v, r, s
 }
 
-func (tx *AlexfAccountAbstractionTx) encode(b *bytes.Buffer) error {
+func (tx *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
 	return rlp.Encode(b, tx)
 }
 
-func (tx *AlexfAccountAbstractionTx) decode(input []byte) error {
+func (tx *Rip7560AccountAbstractionTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
 }
 
-// TransactionType4 an equivalent of a solidity struct only used to encode the 'transaction' parameter
-type TransactionType4 struct {
+// Rip7560Transaction an equivalent of a solidity struct only used to encode the 'transaction' parameter
+type Rip7560Transaction struct {
 	Sender               common.Address
 	Nonce                *big.Int
 	ValidationGasLimit   *big.Int
@@ -156,9 +156,9 @@ type TransactionType4 struct {
 	Signature            []byte
 }
 
-func (tx *AlexfAccountAbstractionTx) AbiEncode() ([]byte, error) {
+func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 
-	//struct TransactionType4 {
+	//struct Rip7560Transaction {
 	//	address sender;
 	//	uint256 nonce;
 	//	uint256 validationGasLimit;
@@ -191,7 +191,7 @@ func (tx *AlexfAccountAbstractionTx) AbiEncode() ([]byte, error) {
 	args := abi.Arguments{
 		{Type: structThing, Name: "param_one"},
 	}
-	record := &TransactionType4{
+	record := &Rip7560Transaction{
 		Sender:               *tx.Sender,
 		Nonce:                tx.BigNonce,
 		ValidationGasLimit:   big.NewInt(int64(tx.ValidationGas)), // todo: awkward uint64->int64 conversions here, why?

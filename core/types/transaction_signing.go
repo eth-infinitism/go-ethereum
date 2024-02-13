@@ -338,9 +338,9 @@ func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
 		// AL txs are defined to use 0 and 1 as their recovery
 		// id, add 27 to become equivalent to unprotected Homestead signatures.
 		V = new(big.Int).Add(V, big.NewInt(27))
-	case ALEXF_AA_TX_TYPE:
+	case Rip7560Type:
 		// TODO: ALEXF: read "sender" from the AA transaction struct
-		return *tx.AlexfAATransactionData().Sender, nil
+		return *tx.Rip7560TransactionData().Sender, nil
 	default:
 		return common.Address{}, ErrTxTypeNotSupported
 	}
@@ -597,10 +597,10 @@ func NewRIP7560Signer(chainId *big.Int) Signer {
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
 func (s rip7560Signer) Hash(tx *Transaction) common.Hash {
-	if tx.Type() != ALEXF_AA_TX_TYPE {
+	if tx.Type() != Rip7560Type {
 		return s.londonSigner.Hash(tx)
 	}
-	aatx := tx.AlexfAATransactionData()
+	aatx := tx.Rip7560TransactionData()
 	return prefixedRlpHash(
 		tx.Type(),
 		[]interface{}{

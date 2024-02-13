@@ -230,8 +230,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	legacyPool := legacypool.New(config.TxPool, eth.blockchain)
 
-	// TODO: pass parameters AA pool needs
-	aaPool := aapool.New(config.BlobPool, eth.blockchain, eth.blockchain.Config())
+	aaPoolConfig := aapool.Config{
+		MaxBundleGas:  10000000,
+		MaxBundleSize: 100,
+	}
+	aaPool := aapool.New(aaPoolConfig)
 	eth.txPool, err = txpool.New(new(big.Int).SetUint64(config.TxPool.PriceLimit), eth.blockchain, []txpool.SubPool{legacyPool, blobPool, aaPool})
 	if err != nil {
 		return nil, err

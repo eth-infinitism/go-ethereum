@@ -255,7 +255,7 @@ func (st *StateTransition) to() common.Address {
 // BuyGasAATransaction
 // todo: move to a suitable interface, whatever that is
 // todo 2: maybe handle the "shared gas pool" situation instead of just overriding it completely?
-func BuyGasAATransaction(st *types.AlexfAccountAbstractionTx, state vm.StateDB) error {
+func BuyGasAATransaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB) error {
 	gasLimit := st.Gas + st.ValidationGas + st.PaymasterGas
 	mgval := new(big.Int).SetUint64(gasLimit)
 	mgval = mgval.Mul(mgval, st.GasFeeCap)

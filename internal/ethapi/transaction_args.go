@@ -305,17 +305,15 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		aatx := types.AlexfAccountAbstractionTx{
-			To:      args.To,
-			ChainID: (*big.Int)(args.ChainID),
-			//Nonce:      (*big.Int)(args.Nonce),
+		aatx := types.Rip7560AccountAbstractionTx{
+			ChainID:    (*big.Int)(args.ChainID),
 			Gas:        uint64(*args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,
-			// ALEXF Type-4 parameters
+			// RIP-7560 parameters
 			Sender:        args.Sender,
 			Signature:     *args.Signature,
 			PaymasterData: *args.PaymasterData,

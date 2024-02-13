@@ -971,8 +971,8 @@ func (api *API) traceTx(ctx context.Context, message *core.Message, txctx *Conte
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
 	if args != nil {
 		tx := args.ToTransaction()
-		if tx.Type() == types.ALEXF_AA_TX_TYPE {
-			_, err = core.ApplyAlexfAATransactionValidationPhaseInternal(tx, vmenv, new(core.GasPool).AddGas(25000000))
+		if tx.Type() == types.Rip7560Type {
+			_, err = core.ApplyRip7560AATransactionValidationPhaseInternal(tx, vmenv, new(core.GasPool).AddGas(25000000))
 			return tracer.GetResult()
 		}
 	}

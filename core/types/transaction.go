@@ -48,7 +48,7 @@ const (
 	AccessListTxType = 0x01
 	DynamicFeeTxType = 0x02
 	BlobTxType       = 0x03
-	ALEXF_AA_TX_TYPE = 0x04
+	Rip7560Type      = 0x04
 )
 
 // Transaction is an Ethereum transaction.
@@ -206,8 +206,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(DynamicFeeTx)
 	case BlobTxType:
 		inner = new(BlobTx)
-	case ALEXF_AA_TX_TYPE:
-		inner = new(AlexfAccountAbstractionTx)
+	case Rip7560Type:
+		inner = new(Rip7560AccountAbstractionTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -417,11 +417,11 @@ func (tx *Transaction) BlobTxSidecar() *BlobTxSidecar {
 	return nil
 }
 
-// AlexfAATransactionData to get the inner part as AA tx struct
+// Rip7560TransactionData to get the inner part as AA tx struct
 // TODO: this is not how it should be done
-func (tx *Transaction) AlexfAATransactionData() *AlexfAccountAbstractionTx {
+func (tx *Transaction) Rip7560TransactionData() *Rip7560AccountAbstractionTx {
 	inner := tx.inner
-	ptr := inner.(*AlexfAccountAbstractionTx)
+	ptr := inner.(*Rip7560AccountAbstractionTx)
 	return ptr
 }
 
