@@ -264,7 +264,10 @@ func (p *TxPool) Get(hash common.Hash) *types.Transaction {
 func (p *TxPool) SubmitBundle(bundle *types.ExternallyReceivedBundle) error {
 	// todo: we cannot 'filter-out' the AA pool so just passing to all pools - only AA pool has code in SubmitBundle
 	for _, subpool := range p.subpools {
-		subpool.SubmitBundle(bundle)
+		err := subpool.SubmitBundle(bundle)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -1558,12 +1558,17 @@ func (p *BlobPool) Status(hash common.Hash) txpool.TxStatus {
 	return txpool.TxStatusUnknown
 }
 
-func (pool *BlobPool) SubmitBundle(_ *types.ExternallyReceivedBundle) {
+func (pool *BlobPool) SubmitBundle(_ *types.ExternallyReceivedBundle) error {
 	// nothing to do here
+	return nil
 }
-func (pool *BlobPool) GetBundleStats(hash common.Hash) (*types.BundleReceipt, error) {
+
+func (pool *BlobPool) GetBundleStats(_ common.Hash) (*types.BundleReceipt, error) {
 	// nothing to do here
 	return nil, nil
 }
 
-func (pool *BlobPool) PendingBundle() (*types.ExternallyReceivedBundle, error) { return nil, nil }
+func (pool *BlobPool) PendingBundle() (*types.ExternallyReceivedBundle, error) {
+	// nothing to do here
+	return nil, nil
+}

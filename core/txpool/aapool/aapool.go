@@ -1,6 +1,7 @@
 package aapool
 
 import (
+	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -9,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"math/big"
 	"sync"
+	"sync/atomic"
 )
 
 type Config struct {
@@ -20,7 +22,8 @@ type Config struct {
 // This implementation relies on an external bundler process to perform most of the hard work.
 type AccountAbstractionBundlerPool struct {
 	config       Config
-	discoverFeed event.Feed // Event feed to send out new tx events on pool inclusion (reorg included)
+	discoverFeed event.Feed                   // Event feed to send out new tx events on pool inclusion (reorg included)
+	currentHead  atomic.Pointer[types.Header] // Current head of the blockchain
 
 	pendingBundles  []*types.ExternallyReceivedBundle
 	includedBundles map[common.Hash]*types.BundleReceipt
@@ -28,8 +31,9 @@ type AccountAbstractionBundlerPool struct {
 	mu sync.Mutex
 }
 
-func (pool *AccountAbstractionBundlerPool) Init(_ *big.Int, _ *types.Header, _ txpool.AddressReserver) error {
+func (pool *AccountAbstractionBundlerPool) Init(_ *big.Int, head *types.Header, _ txpool.AddressReserver) error {
 	pool.pendingBundles = make([]*types.ExternallyReceivedBundle, 0)
+	pool.currentHead.Store(head)
 	return nil
 }
 
@@ -48,6 +52,7 @@ func (pool *AccountAbstractionBundlerPool) Reset(oldHead, newHead *types.Header)
 		}
 	}
 	pool.pendingBundles = pendingBundles
+	pool.currentHead.Store(newHead)
 	fmt.Printf("\nALEXF: AAPool Reset OldHead:%s NewHead:%s PendingBundles:%d",
 		oldHead.Number.String(),
 		newHead.Number.String(),
@@ -131,8 +136,15 @@ func (pool *AccountAbstractionBundlerPool) Filter(_ *types.Transaction) bool {
 	return false
 }
 
-func (pool *AccountAbstractionBundlerPool) SubmitBundle(bundle *types.ExternallyReceivedBundle) {
-	pool.pendingBundles = append(pool.pendingBundles, bundle)
+func (pool *AccountAbstractionBundlerPool) SubmitBundle(bundle *types.ExternallyReceivedBundle) error {
+	currentBlock := pool.currentHead.Load().Number
+	nextBlock := big.NewInt(0).Add(currentBlock, big.NewInt(1))
+	if nextBlock.Cmp(bundle.ValidForBlock) == 0 {
+		pool.pendingBundles = append(pool.pendingBundles, bundle)
+		return nil
+	}
+	return errors.New(fmt.Sprintf("submitted bundle valid for block: %s; next block: %s",
+		bundle.ValidForBlock.String(), nextBlock.String()))
 }
 
 func (pool *AccountAbstractionBundlerPool) GetBundleStats(hash common.Hash) (*types.BundleReceipt, error) {
