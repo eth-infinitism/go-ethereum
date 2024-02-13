@@ -19,7 +19,6 @@ package les
 import (
 	"context"
 	"errors"
-	"github.com/ethereum/go-ethereum/core/txpool"
 	"math/big"
 	"time"
 
@@ -337,7 +336,12 @@ func (b *LesApiBackend) StateAtTransaction(ctx context.Context, block *types.Blo
 	return b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
 }
 
-func (b *LesApiBackend) SubmitBundle(bundle *txpool.ExternallyReceivedBundle) error {
+func (b *LesApiBackend) SubmitBundle(bundle *types.ExternallyReceivedBundle) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (b *LesApiBackend) GetBundleStats(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
 	//TODO implement me
 	panic("implement me")
 }

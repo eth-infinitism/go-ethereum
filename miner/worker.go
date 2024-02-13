@@ -792,7 +792,7 @@ func (w *worker) applyTransaction(env *environment, tx *types.Transaction) (*typ
 	return receipt, err
 }
 
-func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transactionsByPriceAndNonce, isBundle bool, interrupt *atomic.Int32) error {
+func (w *worker) commitAATransactionsBundle(env *environment, txs *types.ExternallyReceivedBundle, _ *atomic.Int32) error {
 
 	// todo: copied over to fix crash, probably should do it once
 	gasLimit := env.header.GasLimit
@@ -805,29 +805,14 @@ func (w *worker) commitBatchAlexfAATransactions(env *environment, txs *transacti
 	verifiedAATransactions := make([]*core.ValidationPhaseResult, 0)
 
 	i := 0
-	for {
-		// Retrieve the next transaction and abort if all done.
-		ltx := txs.Peek()
-		if ltx == nil {
-			break
-		}
-
+	for _, tx := range txs.Transactions {
 		// If we don't have enough gas for any further transactions then we're done.
 		// If we are adding Type 4 transactions that were received as a bundle this is an illegal state.
 		if env.gasPool.Gas() < params.TxGas {
 			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
-			if isBundle {
-				return errors.New("specified Type 4 transaction bundle does not fit the current block's gas pool")
-			}
-			break
+			return errors.New("specified Type 4 transaction bundle does not fit the current block's gas pool")
 		}
 
-		tx := ltx.Resolve()
-		if tx.Type() != types.ALEXF_AA_TX_TYPE {
-			txs.Pop()
-			continue
-		}
-		txs.Shift()
 		env.state.SetTxContext(tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
 		err := core.BuyGasAATransaction(tx.AlexfAATransactionData(), env.state)
 		if err != nil {
@@ -1066,13 +1051,9 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 	}
 
 	// TODO: this method does not seem to trigger any exceptions when returning an error - need to solve it somehow...
-	// With naive ordering AA transactions all go first
 	if len(remoteTxs) > 0 {
-		// TODO: filter or query AA transactions separately
-		pending2 := w.eth.TxPool().Pending(true)
-		// TODO: use AA-specific function to respect big nonce field
-		txs := newTransactionsByPriceAndNonce(env.signer, pending2, env.header.BaseFee)
-		if err := w.commitBatchAlexfAATransactions(env, txs, true, interrupt); err != nil {
+		pendingBundle, err := w.eth.TxPool().PendingBundle()
+		if err = w.commitAATransactionsBundle(env, pendingBundle, interrupt); err != nil {
 			return err
 		}
 	}

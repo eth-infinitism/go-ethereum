@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/txpool"
 	"golang.org/x/crypto/sha3"
 	"math/big"
 	"strings"
@@ -1860,7 +1859,7 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 }
 
 // SubmitBundle is a helper function that submits a bundle of Type 4 transactions to txPool and logs a message.
-func SubmitBundle(ctx context.Context, b Backend, bundle *txpool.ExternallyReceivedBundle) error {
+func SubmitBundle(ctx context.Context, b Backend, bundle *types.ExternallyReceivedBundle) error {
 	return b.SubmitBundle(bundle)
 }
 
@@ -1940,10 +1939,10 @@ func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []Tr
 	for i := 0; i < len(args); i++ {
 		txs[i] = args[i].toTransaction()
 	}
-	bundle := &txpool.ExternallyReceivedBundle{
+	bundle := &types.ExternallyReceivedBundle{
 		BundlerId:       bundlerId,
 		ExpectedRevenue: expectedRevenue,
-		CreationBlock:   creationBlock,
+		ValidForBlock:   creationBlock,
 		Transactions:    txs,
 	}
 	err := SubmitBundle(ctx, s.b, bundle)
@@ -1952,6 +1951,12 @@ func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []Tr
 	}
 	bundleHash := calculateBundleHash(txs)
 	return bundleHash, nil
+}
+
+func (s *TransactionAPI) GetBundleStatus(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
+	bundleStats, err := s.b.GetBundleStats(ctx, hash)
+	println(bundleStats, err)
+	return &types.BundleReceipt{}, nil
 }
 
 // TODO: If this code is indeed necessary, keep it in utils; better - remove altogether.

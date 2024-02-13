@@ -291,9 +291,12 @@ func (b *EthAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction)
 	return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
 }
 
-func (b *EthAPIBackend) SubmitBundle(bundle *txpool.ExternallyReceivedBundle) error {
+func (b *EthAPIBackend) SubmitBundle(bundle *types.ExternallyReceivedBundle) error {
 	return b.eth.txPool.SubmitBundle(bundle)
-	//return b.eth.txPool.Add([]*types.Transaction{signedTx}, true, false)[0]
+}
+
+func (b *EthAPIBackend) GetBundleStats(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
+	return b.eth.txPool.GetBundleStats(hash)
 }
 
 func (b *EthAPIBackend) GetPoolTransactions() (types.Transactions, error) {

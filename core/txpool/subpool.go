@@ -139,5 +139,8 @@ type SubPool interface {
 	Status(hash common.Hash) TxStatus
 
 	// SubmitBundle TODO: preferably we should not to add methods to the SubPool interface
-	SubmitBundle(bundle *ExternallyReceivedBundle)
+	SubmitBundle(bundle *types.ExternallyReceivedBundle)
+	// GetBundleStats TODO: preferably we should not to add methods to the SubPool interface
+	GetBundleStats(hash common.Hash) (*types.BundleReceipt, error)
+	PendingBundle() (*types.ExternallyReceivedBundle, error)
 }

@@ -1944,6 +1944,11 @@ func numSlots(tx *types.Transaction) int {
 	return int((tx.Size() + txSlotSize - 1) / txSlotSize)
 }
 
-func (pool *LegacyPool) SubmitBundle(_ *txpool.ExternallyReceivedBundle) {
+func (pool *LegacyPool) SubmitBundle(_ *types.ExternallyReceivedBundle) {
 	// nothing to do here
 }
+func (pool *LegacyPool) GetBundleStats(hash common.Hash) (*types.BundleReceipt, error) {
+	// nothing to do here
+	return nil, nil
+}
+func (pool *LegacyPool) PendingBundle() (*types.ExternallyReceivedBundle, error) { return nil, nil }

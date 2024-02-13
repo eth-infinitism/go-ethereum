@@ -208,3 +208,25 @@ func (tx *AlexfAccountAbstractionTx) AbiEncode() ([]byte, error) {
 	packed, err := args.Pack(&record)
 	return packed, err
 }
+
+// ExternallyReceivedBundle represents a bundle of Type 4 transactions received from a trusted 3rd party.
+// The validator includes the bundle in the original order atomically or drops it completely.
+type ExternallyReceivedBundle struct {
+	BundlerId       string
+	BundleHash      common.Hash
+	ExpectedRevenue *big.Int
+	ValidForBlock   *big.Int
+	Transactions    []*Transaction
+}
+
+// BundleReceipt represents a receipt for an ExternallyReceivedBundle successfully included in a block.
+type BundleReceipt struct {
+	BundleHash          common.Hash
+	Status              uint64 // 0=included / 1=pending / 2=invalid / 3=unknown
+	BlockNumber         uint64
+	BlockHash           common.Hash
+	TransactionReceipts []*Receipt
+	GasUsed             uint64
+	BundlerProfits      *big.Int
+	BlockTimestamp      uint64
+}
