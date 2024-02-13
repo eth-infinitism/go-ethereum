@@ -341,7 +341,7 @@ func (b *LesApiBackend) SubmitBundle(bundle *types.ExternallyReceivedBundle) err
 	panic("implement me")
 }
 
-func (b *LesApiBackend) GetBundleStats(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
+func (b *LesApiBackend) GetBundleStatus(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
 	//TODO implement me
 	panic("implement me")
 }

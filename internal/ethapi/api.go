@@ -1950,13 +1950,13 @@ func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []Tr
 		return common.Hash{}, err
 	}
 	bundleHash := calculateBundleHash(txs)
+	bundle.BundleHash = bundleHash
 	return bundleHash, nil
 }
 
 func (s *TransactionAPI) GetBundleStatus(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
-	bundleStats, err := s.b.GetBundleStats(ctx, hash)
-	println(bundleStats, err)
-	return &types.BundleReceipt{}, nil
+	bundleStats, err := s.b.GetBundleStatus(ctx, hash)
+	return bundleStats, err
 }
 
 // TODO: If this code is indeed necessary, keep it in utils; better - remove altogether.

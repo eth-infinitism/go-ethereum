@@ -140,7 +140,7 @@ type SubPool interface {
 
 	// SubmitBundle TODO: preferably we should not to add methods to the SubPool interface
 	SubmitBundle(bundle *types.ExternallyReceivedBundle) error
-	// GetBundleStats TODO: preferably we should not to add methods to the SubPool interface
-	GetBundleStats(hash common.Hash) (*types.BundleReceipt, error)
+	// GetBundleStatus TODO: preferably we should not to add methods to the SubPool interface
+	GetBundleStatus(hash common.Hash) (*types.BundleReceipt, error)
 	PendingBundle() (*types.ExternallyReceivedBundle, error)
 }

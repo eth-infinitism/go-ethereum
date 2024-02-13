@@ -234,7 +234,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		MaxBundleGas:  10000000,
 		MaxBundleSize: 100,
 	}
-	aaPool := aapool.New(aaPoolConfig)
+	aaPool := aapool.New(aaPoolConfig, eth.blockchain, config.Miner.Etherbase)
 	eth.txPool, err = txpool.New(new(big.Int).SetUint64(config.TxPool.PriceLimit), eth.blockchain, []txpool.SubPool{legacyPool, blobPool, aaPool})
 	if err != nil {
 		return nil, err

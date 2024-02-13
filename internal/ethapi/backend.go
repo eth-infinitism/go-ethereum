@@ -100,7 +100,7 @@ type Backend interface {
 
 	// SubmitBundle TODO: preferably we should not to add methods to the Backend interface
 	SubmitBundle(bundle *types.ExternallyReceivedBundle) error
-	GetBundleStats(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error)
+	GetBundleStatus(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error)
 }
 
 func GetAPIs(apiBackend Backend) []rpc.API {

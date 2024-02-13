@@ -1563,7 +1563,7 @@ func (pool *BlobPool) SubmitBundle(_ *types.ExternallyReceivedBundle) error {
 	return nil
 }
 
-func (pool *BlobPool) GetBundleStats(_ common.Hash) (*types.BundleReceipt, error) {
+func (pool *BlobPool) GetBundleStatus(_ common.Hash) (*types.BundleReceipt, error) {
 	// nothing to do here
 	return nil, nil
 }

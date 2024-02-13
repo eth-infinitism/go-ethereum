@@ -467,6 +467,7 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 					timer.Reset(recommit)
 					continue
 				}
+				fmt.Printf("timer.C called commit")
 				commit(commitInterruptResubmit)
 			}
 
@@ -528,6 +529,34 @@ func (w *worker) mainLoop() {
 			req.result <- w.generateWork(req.params)
 
 		case ev := <-w.txsCh:
+
+			// TODO: this is really a temporary solution; probably will need a separate channel?
+			var allRip7560 = true
+			for _, tx := range ev.Txs {
+				if tx.Type() != types.Rip7560Type {
+					allRip7560 = false
+				}
+			}
+			if allRip7560 {
+				// If all incoming transactions are RIP-7560 treat this as a bundle
+				bundle := &types.ExternallyReceivedBundle{
+					Transactions: ev.Txs,
+				}
+				fmt.Printf("worker mainLoop applied %d AA transactions to block %d", len(bundle.Transactions), w.current.header.Number)
+				tcount := w.current.tcount
+				err := w.commitAATransactionsBundle(w.current, bundle, nil)
+				if err != nil {
+					log.Error(err.Error())
+				}
+				// Only update the snapshot if any new transactions were added
+				// to the pending block
+				if tcount != w.current.tcount {
+					w.updateSnapshot(w.current)
+				}
+				w.newTxs.Add(int32(len(ev.Txs)))
+				continue
+			}
+
 			// Apply transactions to the pending state if we're not sealing
 			//
 			// Note all transactions received may not be continuous with transactions
@@ -835,6 +864,7 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 		}
 		env.txs = append(env.txs, vpr.Tx)
 		env.receipts = append(env.receipts, receipt)
+		env.tcount++
 	}
 	return nil
 }
@@ -1051,8 +1081,9 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 	}
 
 	// TODO: this method does not seem to trigger any exceptions when returning an error - need to solve it somehow...
-	if len(remoteTxs) > 0 {
-		pendingBundle, err := w.eth.TxPool().PendingBundle()
+	pendingBundle, err := w.eth.TxPool().PendingBundle()
+	fmt.Printf("PendingBundle called for block %d; is nil: %t)", env.header.Number, pendingBundle == nil)
+	if pendingBundle != nil {
 		if err = w.commitAATransactionsBundle(env, pendingBundle, interrupt); err != nil {
 			return err
 		}
@@ -1160,6 +1191,7 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 		work.discard()
 		return
 	}
+	fmt.Printf("commitWork called block: %d transactions: %d", work.header.Number, len(work.txs))
 	// Submit the generated block for consensus sealing.
 	w.commit(work.copy(), w.fullTaskHook, true, start)
 

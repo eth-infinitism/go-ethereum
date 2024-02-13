@@ -1949,7 +1949,7 @@ func (pool *LegacyPool) SubmitBundle(_ *types.ExternallyReceivedBundle) error {
 	return nil
 }
 
-func (pool *LegacyPool) GetBundleStats(_ common.Hash) (*types.BundleReceipt, error) {
+func (pool *LegacyPool) GetBundleStatus(_ common.Hash) (*types.BundleReceipt, error) {
 	// nothing to do here
 	return nil, nil
 }

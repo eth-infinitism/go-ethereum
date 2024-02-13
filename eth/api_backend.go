@@ -295,8 +295,8 @@ func (b *EthAPIBackend) SubmitBundle(bundle *types.ExternallyReceivedBundle) err
 	return b.eth.txPool.SubmitBundle(bundle)
 }
 
-func (b *EthAPIBackend) GetBundleStats(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
-	return b.eth.txPool.GetBundleStats(hash)
+func (b *EthAPIBackend) GetBundleStatus(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error) {
+	return b.eth.txPool.GetBundleStatus(hash)
 }
 
 func (b *EthAPIBackend) GetPoolTransactions() (types.Transactions, error) {

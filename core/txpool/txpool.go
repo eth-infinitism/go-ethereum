@@ -272,10 +272,10 @@ func (p *TxPool) SubmitBundle(bundle *types.ExternallyReceivedBundle) error {
 	return nil
 }
 
-func (p *TxPool) GetBundleStats(hash common.Hash) (*types.BundleReceipt, error) {
+func (p *TxPool) GetBundleStatus(hash common.Hash) (*types.BundleReceipt, error) {
 	// todo: we cannot 'filter-out' the AA pool so just passing to all pools - only AA pool has code in SubmitBundle
 	for _, subpool := range p.subpools {
-		bundleStats, err := subpool.GetBundleStats(hash)
+		bundleStats, err := subpool.GetBundleStatus(hash)
 		if err != nil {
 			return nil, err
 		}
