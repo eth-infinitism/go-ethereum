@@ -30,38 +30,42 @@ type ValidationPhaseResult struct {
 
 // HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
 // the number of handled transactions
-func (p *StateProcessor) HandleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, context *vm.BlockContext, header *types.Header, gp *GasPool, cfg vm.Config, receipts types.Receipts, allLogs []*types.Log) (int, error) {
-	verifiedAATransactions := make([]*ValidationPhaseResult, 0)
+func HandleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
+	validationPhaseResults := make([]*ValidationPhaseResult, 0)
+	validatedTransactions := make([]*types.Transaction, 0)
+	receipts := make([]*types.Receipt, 0)
+	allLogs := make([]*types.Log, 0)
 	for i, tx := range transactions[index:] {
 		if tx.Type() == types.Rip7560Type {
 			statedb.SetTxContext(tx.Hash(), index+i)
 			err := BuyGasAATransaction(tx.Rip7560TransactionData(), statedb)
 			if err != nil {
-				return 0, err
+				return nil, nil, nil, err
 			}
-			vpr, err := ApplyRip7560ValidationPhases(p.config, p.bc, &context.Coinbase, gp, statedb, header, tx, cfg)
+			vpr, err := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
 			if err != nil {
-				return 0, err
+				return nil, nil, nil, err
 			}
-			verifiedAATransactions = append(verifiedAATransactions, vpr)
+			validationPhaseResults = append(validationPhaseResults, vpr)
+			validatedTransactions = append(validatedTransactions, tx)
 		} else {
 			break
 		}
 	}
-	for i, vpr := range verifiedAATransactions {
+	for i, vpr := range validationPhaseResults {
 
 		// TODO: this will miss all validation phase events - pass in 'vpr'
 		statedb.SetTxContext(vpr.Tx.Hash(), i)
 
-		receipt, err := ApplyRip7560ExecutionPhase(p.config, vpr, p.bc, &context.Coinbase, gp, statedb, header, cfg)
+		receipt, err := ApplyRip7560ExecutionPhase(chainConfig, vpr, bc, coinbase, gp, statedb, header, cfg)
 
 		if err != nil {
-			return 0, err
+			return nil, nil, nil, err
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
-	return len(verifiedAATransactions), nil
+	return validatedTransactions, receipts, allLogs, nil
 }
 
 // GetRip7560AccountNonce reads the two-dimensional RIP-7560 nonce from the given blockchain state

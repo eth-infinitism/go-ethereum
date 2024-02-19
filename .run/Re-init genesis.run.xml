@@ -1,8 +1,8 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Clear Local Chain" type="ShConfigurationType">
-    <option name="SCRIPT_TEXT" value="rm -rf alexfdata/geth &amp;&amp; rm -rf alexfdata2/geth" />
+  <configuration default="false" name="Re-init genesis" type="ShConfigurationType">
+    <option name="SCRIPT_TEXT" value="ls" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
-    <option name="SCRIPT_PATH" value="" />
+    <option name="SCRIPT_PATH" value="ls" />
     <option name="SCRIPT_OPTIONS" value="" />
     <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
     <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
@@ -12,6 +12,9 @@
     <option name="EXECUTE_IN_TERMINAL" value="true" />
     <option name="EXECUTE_SCRIPT_FILE" value="false" />
     <envs />
-    <method v="2" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Clear Local Chain" run_configuration_type="ShConfigurationType" />
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="go build geth init" run_configuration_type="GoApplicationRunConfiguration" />
+    </method>
   </configuration>
 </component>

@@ -829,41 +829,11 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
-	// todo: maybe it is not optimal to allocate space for all transactions in advance?
-	// todo 2: keep structure with gas used info and paymaster context
-	verifiedAATransactions := make([]*core.ValidationPhaseResult, 0)
+	validatedTxs, receipts, _, err := core.HandleRip7560Transactions(txs.Transactions, 0, env.state, &w.coinbase, env.header, env.gasPool, w.chainConfig, w.chain, vm.Config{})
 
-	for _, tx := range txs.Transactions {
-		// If we don't have enough gas for any further transactions then we're done.
-		// If we are adding Type 4 transactions that were received as a bundle this is an illegal state.
-		if env.gasPool.Gas() < params.TxGas {
-			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
-			return errors.New("specified Type 4 transaction bundle does not fit the current block's gas pool")
-		}
-
-		env.state.SetTxContext(tx.Hash(), env.tcount)
-		err := core.BuyGasAATransaction(tx.Rip7560TransactionData(), env.state)
-		if err != nil {
-			return err
-		}
-		vpr, err := core.ApplyRip7560ValidationPhases(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
-		if err != nil {
-			// todo: handle "invalidated" transaction - drop from mempool and continue loop
-			return err
-		}
-		verifiedAATransactions = append(verifiedAATransactions, vpr)
-		env.tcount++
-	}
-	for _, vpr := range verifiedAATransactions {
-		env.state.SetTxContext(vpr.Tx.Hash(), vpr.TxIndex)
-		receipt, err := core.ApplyRip7560ExecutionPhase(w.chainConfig, vpr, w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
-		if err != nil {
-			return err
-		}
-		env.txs = append(env.txs, vpr.Tx)
-		env.receipts = append(env.receipts, receipt)
-	}
-	return nil
+	env.txs = append(env.txs, validatedTxs...)
+	env.receipts = append(env.receipts, receipts...)
+	return err
 }
 
 func (w *worker) commitTransactions(env *environment, txs *transactionsByPriceAndNonce, interrupt *atomic.Int32) error {
