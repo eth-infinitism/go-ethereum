@@ -207,7 +207,16 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case BlobTxType:
 		inner = new(BlobTx)
 	case Rip7560Type:
-		inner = new(Rip7560AccountAbstractionTx)
+		switch b[1] {
+		case EmptyHeaderSubtype:
+			// TODO implement non-aggregation header support
+			panic("whatever")
+		case TransactionPayloadSubtype:
+			inner = new(Rip7560AccountAbstractionTx)
+		default:
+			errors.New("RIP-7560 transaction subtype is not supported")
+		}
+
 	default:
 		return nil, ErrTxTypeNotSupported
 	}

@@ -25,6 +25,14 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+// RIP-7560 Transaction subtypes.
+const (
+	EmptyHeaderSubtype                   = 0x00
+	TransactionPayloadSubtype            = 0x01
+	AggregationHeaderSubtype             = 0x02
+	AggregationTransactionPayloadSubtype = 0x03
+)
+
 // Rip7560AccountAbstractionTx represents an RIP-7560 transaction.
 type Rip7560AccountAbstractionTx struct {
 	// overlapping fields
@@ -132,12 +140,15 @@ func (tx *Rip7560AccountAbstractionTx) setSignatureValues(chainID, v, r, s *big.
 	//tx.ChainID, tx.V, tx.R, tx.S = chainID, v, r, s
 }
 
+// encode the subtype byte and the payload-bearing bytes of the RIP-7560 transaction
 func (tx *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
+	b.WriteByte(TransactionPayloadSubtype)
 	return rlp.Encode(b, tx)
 }
 
+// decode the payload-bearing bytes of the encoded RIP-7560 transaction payload
 func (tx *Rip7560AccountAbstractionTx) decode(input []byte) error {
-	return rlp.DecodeBytes(input, tx)
+	return rlp.DecodeBytes(input[1:], tx)
 }
 
 // Rip7560Transaction an equivalent of a solidity struct only used to encode the 'transaction' parameter
