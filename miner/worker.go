@@ -467,7 +467,6 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 					timer.Reset(recommit)
 					continue
 				}
-				fmt.Printf("timer.C called commit")
 				commit(commitInterruptResubmit)
 			}
 
@@ -542,7 +541,6 @@ func (w *worker) mainLoop() {
 				bundle := &types.ExternallyReceivedBundle{
 					Transactions: ev.Txs,
 				}
-				fmt.Printf("worker mainLoop applied %d AA transactions to block %d", len(bundle.Transactions), w.current.header.Number)
 				tcount := w.current.tcount
 				err := w.commitAATransactionsBundle(w.current, bundle, nil)
 				if err != nil {
@@ -1049,7 +1047,6 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 
 	// TODO: this method does not seem to trigger any exceptions when returning an error - need to solve it somehow...
 	pendingBundle, err := w.eth.TxPool().PendingBundle()
-	fmt.Printf("PendingBundle called for block %d; is nil: %t)", env.header.Number, pendingBundle == nil)
 	if pendingBundle != nil {
 		if err = w.commitAATransactionsBundle(env, pendingBundle, interrupt); err != nil {
 			return err
@@ -1158,7 +1155,6 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 		work.discard()
 		return
 	}
-	fmt.Printf("commitWork called block: %d transactions: %d", work.header.Number, len(work.txs))
 	// Submit the generated block for consensus sealing.
 	w.commit(work.copy(), w.fullTaskHook, true, start)
 
