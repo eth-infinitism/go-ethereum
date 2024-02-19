@@ -39,9 +39,9 @@ type sigCache struct {
 // MakeSigner returns a Signer based on the given chain config and block number.
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int, blockTime uint64) Signer {
 	var signer Signer
-	// TODO: TMP: add config for rip7560, do not merge like this
-	return NewRIP7560Signer(config.ChainID)
 	switch {
+	case config.IsRIP7560(blockNumber):
+		signer = NewRIP7560Signer(config.ChainID)
 	case config.IsCancun(blockNumber, blockTime):
 		signer = NewCancunSigner(config.ChainID)
 	case config.IsLondon(blockNumber):

@@ -11,6 +11,7 @@
     "petersburgBlock": 0,
     "constantinopleBlock": 0,
     "byzantiumBlock": 0,
+    "rip7560block": 0,
     "clique": {
       "period": 5,
       "epoch": 30000
