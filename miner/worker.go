@@ -833,7 +833,6 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 	// todo 2: keep structure with gas used info and paymaster context
 	verifiedAATransactions := make([]*core.ValidationPhaseResult, 0)
 
-	i := 0
 	for _, tx := range txs.Transactions {
 		// If we don't have enough gas for any further transactions then we're done.
 		// If we are adding Type 4 transactions that were received as a bundle this is an illegal state.
@@ -842,29 +841,27 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 			return errors.New("specified Type 4 transaction bundle does not fit the current block's gas pool")
 		}
 
-		env.state.SetTxContext(tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
+		env.state.SetTxContext(tx.Hash(), env.tcount)
 		err := core.BuyGasAATransaction(tx.Rip7560TransactionData(), env.state)
 		if err != nil {
 			return err
 		}
-		vpr, err := core.ApplyRip7560TransactionValidationPhase(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
+		vpr, err := core.ApplyRip7560ValidationPhases(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, *w.chain.GetVMConfig())
 		if err != nil {
 			// todo: handle "invalidated" transaction - drop from mempool and continue loop
 			return err
 		}
-		// todo: keep 'paymaster context'
 		verifiedAATransactions = append(verifiedAATransactions, vpr)
-		i++
+		env.tcount++
 	}
 	for _, vpr := range verifiedAATransactions {
-		env.state.SetTxContext(vpr.Tx.Hash(), env.tcount) // todo: not sure 'tcount' is what I need here
-		receipt, err := core.ApplyRip7560TransactionExecutionPhase(w.chainConfig, vpr, env.header.Number, env.header.Hash(), w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
+		env.state.SetTxContext(vpr.Tx.Hash(), vpr.TxIndex)
+		receipt, err := core.ApplyRip7560ExecutionPhase(w.chainConfig, vpr, w.chain, &env.coinbase, env.gasPool, env.state, env.header, *w.chain.GetVMConfig())
 		if err != nil {
 			return err
 		}
 		env.txs = append(env.txs, vpr.Tx)
 		env.receipts = append(env.receipts, receipt)
-		env.tcount++
 	}
 	return nil
 }

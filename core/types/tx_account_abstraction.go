@@ -157,22 +157,6 @@ type Rip7560Transaction struct {
 }
 
 func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
-
-	//struct Rip7560Transaction {
-	//	address sender;
-	//	uint256 nonce;
-	//	uint256 validationGasLimit;
-	//	uint256 paymasterGasLimit;
-	//	uint256 callGasLimit;
-	//	uint256 maxFeePerGas;
-	//	uint256 maxPriorityFeePerGas;
-	//	uint256 builderFee;
-	//	bytes paymasterData;
-	//	bytes deployerData;
-	//	bytes callData;
-	//	bytes signature;
-	//}
-
 	structThing, _ := abi.NewType("tuple", "struct thing", []abi.ArgumentMarshaling{
 		{Name: "sender", Type: "address"},
 		{Name: "nonce", Type: "uint256"},
@@ -194,7 +178,7 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 	record := &Rip7560Transaction{
 		Sender:               *tx.Sender,
 		Nonce:                tx.BigNonce,
-		ValidationGasLimit:   big.NewInt(int64(tx.ValidationGas)), // todo: awkward uint64->int64 conversions here, why?
+		ValidationGasLimit:   big.NewInt(int64(tx.ValidationGas)),
 		PaymasterGasLimit:    big.NewInt(int64(tx.PaymasterGas)),
 		CallGasLimit:         big.NewInt(int64(tx.Gas)),
 		MaxFeePerGas:         tx.GasFeeCap,

@@ -972,7 +972,9 @@ func (api *API) traceTx(ctx context.Context, message *core.Message, txctx *Conte
 	if args != nil {
 		tx := args.ToTransaction()
 		if tx.Type() == types.Rip7560Type {
-			_, err = core.ApplyRip7560AATransactionValidationPhaseInternal(tx, vmenv, new(core.GasPool).AddGas(25000000))
+			// TODO: fix parameters list or find all needed parameters
+			gasPool := new(core.GasPool).AddGas(25000000)
+			_, err = core.ApplyRip7560ValidationPhases(vmenv.ChainConfig(), nil, &vmenv.Origin, gasPool, statedb, nil, tx, vmenv.Config)
 			return tracer.GetResult()
 		}
 	}

@@ -14,7 +14,10 @@
     "clique": {
       "period": 5,
       "epoch": 30000
-    }
+    },
+    "entryPointAddress": "0x7560000000000000000000000000000000007560",
+    "deployerCallerAddress": "0x7560ffffffffffffffffffffffffffffffff7560",
+    "nonceManagerAddress": "0xdebc121d1b09bc03ff57fa1f96514d04a1f0f59d"
   },
   "difficulty": "0x400",
   "gasLimit": "0x1c9c380",
