@@ -209,8 +209,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case Rip7560Type:
 		switch b[1] {
 		case EmptyHeaderSubtype:
-			// TODO implement non-aggregation header support
-			panic("whatever")
+			inner = new(Rip7560AccountAbstractionHeaderTx)
 		case TransactionPayloadSubtype:
 			inner = new(Rip7560AccountAbstractionTx)
 		default:
