@@ -339,7 +339,6 @@ func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
 		// id, add 27 to become equivalent to unprotected Homestead signatures.
 		V = new(big.Int).Add(V, big.NewInt(27))
 	case Rip7560Type:
-		// TODO: ALEXF: read "sender" from the AA transaction struct
 		return *tx.Rip7560TransactionData().Sender, nil
 	default:
 		return common.Address{}, ErrTxTypeNotSupported
@@ -586,38 +585,4 @@ func deriveChainId(v *big.Int) *big.Int {
 	}
 	v = new(big.Int).Sub(v, big.NewInt(35))
 	return v.Div(v, big.NewInt(2))
-}
-
-type rip7560Signer struct{ londonSigner }
-
-func NewRIP7560Signer(chainId *big.Int) Signer {
-	return rip7560Signer{londonSigner{eip2930Signer{NewEIP155Signer(chainId)}}}
-}
-
-// Hash returns the hash to be signed by the sender.
-// It does not uniquely identify the transaction.
-func (s rip7560Signer) Hash(tx *Transaction) common.Hash {
-	if tx.Type() != Rip7560Type {
-		return s.londonSigner.Hash(tx)
-	}
-	aatx := tx.Rip7560TransactionData()
-	return prefixedRlpHash(
-		tx.Type(),
-		[]interface{}{
-			s.chainId,
-			tx.GasTipCap(),
-			tx.GasFeeCap(),
-			tx.Gas(),
-			tx.To(),
-			tx.Data(),
-			tx.AccessList(),
-
-			aatx.Sender,
-			aatx.PaymasterData,
-			aatx.DeployerData,
-			aatx.BuilderFee,
-			aatx.ValidationGas,
-			aatx.PaymasterGas,
-			aatx.BigNonce,
-		})
 }
