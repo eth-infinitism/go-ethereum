@@ -30,7 +30,45 @@ type ValidationPhaseResult struct {
 
 // HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
 // the number of handled transactions
+// the transactions array must start with the RIP-7560 transaction
+// TODO STOPSHIP: this code has not been checked even once - check manually and provide test coverage
 func HandleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
+	validatedTransactions := make([]*types.Transaction, 0)
+	receipts := make([]*types.Receipt, 0)
+	allLogs := make([]*types.Log, 0)
+
+	i := index
+	for {
+		if i >= len(transactions) {
+			break
+		}
+		batchEnd := len(transactions) - 1
+		if transactions[i].Type() != types.Rip7560Type {
+			break
+		}
+		subtype := transactions[i].Rip7560TransactionSubtype()
+		if subtype == types.HeaderCounterSubtype {
+			header := transactions[i].Rip7560HeaderTxData()
+			// "jump" to the next expected header on next iteration
+			i += int(header.TransactionsCount)
+			batchEnd = i
+			// todo: check batch size is valid (fits, >0, etc.)
+		} else {
+			// "jump" outside the array on next iteration
+			i = len(transactions)
+		}
+		iTransactions, iReceipts, iLogs, err := handleRip7560Transactions(transactions[:batchEnd], index, statedb, coinbase, header, gp, chainConfig, bc, cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		validatedTransactions = append(validatedTransactions, iTransactions...)
+		receipts = append(receipts, iReceipts...)
+		allLogs = append(allLogs, iLogs...)
+	}
+	return validatedTransactions, receipts, allLogs, nil
+}
+
+func handleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
 	validationPhaseResults := make([]*ValidationPhaseResult, 0)
 	validatedTransactions := make([]*types.Transaction, 0)
 	receipts := make([]*types.Receipt, 0)

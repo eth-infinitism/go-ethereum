@@ -56,6 +56,7 @@ type TransactionArgs struct {
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 
 	// ALEXF fields added for Type 4 AA Transaction
+	Subtype       *hexutil.Uint64
 	Sender        *common.Address `json:"sender"`
 	Signature     *hexutil.Bytes
 	PaymasterData *hexutil.Bytes `json:"paymasterData"`
@@ -306,6 +307,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			al = *args.AccessList
 		}
 		aatx := types.Rip7560AccountAbstractionTx{
+			Subtype:    byte(*args.Subtype),
 			To:         &common.Address{},
 			ChainID:    (*big.Int)(args.ChainID),
 			Gas:        uint64(*args.Gas),

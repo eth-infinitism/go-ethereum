@@ -208,7 +208,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(BlobTx)
 	case Rip7560Type:
 		switch b[1] {
-		case EmptyHeaderSubtype:
+		case HeaderCounterSubtype:
 			inner = new(Rip7560AccountAbstractionHeaderTx)
 		case TransactionPayloadSubtype:
 			inner = new(Rip7560AccountAbstractionTx)
@@ -425,11 +425,25 @@ func (tx *Transaction) BlobTxSidecar() *BlobTxSidecar {
 	return nil
 }
 
-// Rip7560TransactionData to get the inner part as AA tx struct
+// Rip7560TransactionSubtype to get the subtype of the RIP-7560 transaction for further type casting
 // TODO: this is not how it should be done
+func (tx *Transaction) Rip7560TransactionSubtype() byte {
+	inner := tx.inner
+	ptr := inner.(*Rip7560AccountAbstractionTx)
+	return ptr.Subtype
+}
+
 func (tx *Transaction) Rip7560TransactionData() *Rip7560AccountAbstractionTx {
 	inner := tx.inner
 	ptr := inner.(*Rip7560AccountAbstractionTx)
+	return ptr
+}
+
+// Rip7560HeaderTxData to get the inner part as an RIP-7560 counter header transaction struct
+// TODO: this is not how it should be done
+func (tx *Transaction) Rip7560HeaderTxData() *Rip7560AccountAbstractionHeaderTx {
+	inner := tx.inner
+	ptr := inner.(*Rip7560AccountAbstractionHeaderTx)
 	return ptr
 }
 

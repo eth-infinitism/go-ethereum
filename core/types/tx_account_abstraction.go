@@ -27,7 +27,7 @@ import (
 
 // RIP-7560 Transaction subtypes.
 const (
-	EmptyHeaderSubtype                   = 0x00
+	HeaderCounterSubtype                 = 0x00
 	TransactionPayloadSubtype            = 0x01
 	AggregationHeaderSubtype             = 0x02
 	AggregationTransactionPayloadSubtype = 0x03
@@ -35,6 +35,7 @@ const (
 
 // Rip7560AccountAbstractionTx represents an RIP-7560 transaction.
 type Rip7560AccountAbstractionTx struct {
+	Subtype byte
 	// overlapping fields
 	ChainID    *big.Int
 	GasTipCap  *big.Int // a.k.a. maxPriorityFeePerGas
@@ -66,9 +67,10 @@ type Rip7560AccountAbstractionTx struct {
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 	cpy := &Rip7560AccountAbstractionTx{
-		To:   copyAddressPtr(tx.To),
-		Data: common.CopyBytes(tx.Data),
-		Gas:  tx.Gas,
+		Subtype: tx.Subtype,
+		To:      copyAddressPtr(tx.To),
+		Data:    common.CopyBytes(tx.Data),
+		Gas:     tx.Gas,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
 		Value:      new(big.Int),
@@ -148,6 +150,7 @@ func (tx *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
 
 // decode the payload-bearing bytes of the encoded RIP-7560 transaction payload
 func (tx *Rip7560AccountAbstractionTx) decode(input []byte) error {
+	tx.Subtype = TransactionPayloadSubtype
 	return rlp.DecodeBytes(input[1:], tx)
 }
 
