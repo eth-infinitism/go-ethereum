@@ -19,7 +19,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"math"
 	"math/big"
 
@@ -148,7 +147,7 @@ type Message struct {
 	// account nonce in state. It also disables checking that the sender is an EOA.
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
-	IsInnerAATxFrame  bool
+	IsRip7560Frame    bool
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -187,8 +186,8 @@ func ApplyMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, err
 	return NewStateTransition(evm, msg, gp).TransitionDb()
 }
 
-func ApplyAATxMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, error) {
-	return NewAATxStateTransition(evm, msg, gp).TransitionDb()
+func ApplyRip7560FrameMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult, error) {
+	return NewRip7560StateTransition(evm, msg, gp).TransitionDb()
 }
 
 // StateTransition represents a state transition.
@@ -214,13 +213,13 @@ func ApplyAATxMessage(evm *vm.EVM, msg *Message, gp *GasPool) (*ExecutionResult,
 //  5. Run Script section
 //  6. Derive new state root
 type StateTransition struct {
-	gp           *GasPool
-	msg          *Message
-	gasRemaining uint64
-	initialGas   uint64
-	state        vm.StateDB
-	evm          *vm.EVM
-	isInnerAATxFrame bool
+	gp             *GasPool
+	msg            *Message
+	gasRemaining   uint64
+	initialGas     uint64
+	state          vm.StateDB
+	evm            *vm.EVM
+	isRip7560Frame bool
 }
 
 // NewStateTransition initialises and returns a new state transition object.
@@ -233,14 +232,14 @@ func NewStateTransition(evm *vm.EVM, msg *Message, gp *GasPool) *StateTransition
 	}
 }
 
-// NewAATxStateTransition initialises and returns a new state transition object.
-func NewAATxStateTransition(evm *vm.EVM, msg *Message, gp *GasPool) *StateTransition {
+// NewRip7560StateTransition initialises and returns a new state transition object.
+func NewRip7560StateTransition(evm *vm.EVM, msg *Message, gp *GasPool) *StateTransition {
 	return &StateTransition{
-		gp:               gp,
-		evm:              evm,
-		msg:              msg,
-		state:            evm.StateDB,
-		isInnerAATxFrame: true,
+		gp:             gp,
+		evm:            evm,
+		msg:            msg,
+		state:          evm.StateDB,
+		isRip7560Frame: true,
 	}
 }
 
@@ -252,10 +251,10 @@ func (st *StateTransition) to() common.Address {
 	return *st.msg.To
 }
 
-// BuyGasAATransaction
+// BuyGasRip7560Transaction
 // todo: move to a suitable interface, whatever that is
 // todo 2: maybe handle the "shared gas pool" situation instead of just overriding it completely?
-func BuyGasAATransaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB) error {
+func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB) error {
 	gasLimit := st.Gas + st.ValidationGas + st.PaymasterGas
 	mgval := new(big.Int).SetUint64(gasLimit)
 	mgval = mgval.Mul(mgval, st.GasFeeCap)
@@ -268,7 +267,6 @@ func BuyGasAATransaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB
 	}
 
 	if have, want := state.GetBalance(chargeFrom), balanceCheck; have.Cmp(want) < 0 {
-		log.Error(fmt.Sprintf("ALEXF AA TX error: %w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want))
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
 	}
 
@@ -385,8 +383,9 @@ func (st *StateTransition) preCheck() error {
 			}
 		}
 	}
-	// ALEXF: no need to "buy gus" for individual AA transaction frames, there is a single shared gas pre-charge
-	if st.isInnerAATxFrame {
+	// no need to "buy gus" for individual frames
+	// there is a single shared gas pre-charge
+	if st.isRip7560Frame {
 		st.gasRemaining += st.msg.GasLimit
 		st.initialGas = st.msg.GasLimit
 		return nil
@@ -435,7 +434,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, msg.IsInnerAATxFrame)
+	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, msg.IsRip7560Frame)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +470,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret, st.gasRemaining, vmerr = st.evm.Call(sender, st.to(), msg.Data, st.gasRemaining, msg.Value)
 	}
 
-	if !st.isInnerAATxFrame {
+	if !st.isRip7560Frame {
 		if !rules.IsLondon {
 			// Before EIP-3529: refunds were capped to gasUsed / 2
 			st.refundGas(params.RefundQuotient)

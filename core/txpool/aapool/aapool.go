@@ -50,12 +50,6 @@ func (pool *AccountAbstractionBundlerPool) Reset(oldHead, newHead *types.Header)
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	fmt.Printf("\nALEXF: AAPool Reset OldHead:%s NewHead:%s PendingBundles:%d\n\n",
-		oldHead.Number.String(),
-		newHead.Number.String(),
-		len(pool.pendingBundles),
-	)
-
 	newIncludedBundles := pool.gatherIncludedBundlesStats(newHead)
 	for _, included := range newIncludedBundles {
 		pool.includedBundles[included.BundleHash] = included

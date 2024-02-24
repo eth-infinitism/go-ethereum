@@ -19,7 +19,6 @@ package ethapi
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -55,7 +54,7 @@ type TransactionArgs struct {
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 
-	// ALEXF fields added for Type 4 AA Transaction
+	// Introduced by RIP-7560 Transaction
 	Subtype       *hexutil.Uint64
 	Sender        *common.Address `json:"sender"`
 	Signature     *hexutil.Bytes
@@ -327,16 +326,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			BigNonce:      (*big.Int)(args.BigNonce),
 		}
 		data = &aatx
-		fmt.Printf("\nALEXF Type-4 transaction created:\n"+
-			"Sender: %s\n"+
-			"Signature: %s\n"+
-			"PaymasterData: %s\n"+
-			"DeployerData: %s\n",
-			aatx.Sender.Hex(),
-			hex.EncodeToString(aatx.Signature),
-			hex.EncodeToString(aatx.PaymasterData),
-			hex.EncodeToString(aatx.DeployerData),
-		)
+		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex())
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}
 		if args.AccessList != nil {

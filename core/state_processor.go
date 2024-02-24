@@ -83,7 +83,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	for i := 0; i < len(transactions); i++ {
 		tx := transactions[i]
 		if tx.Type() == types.Rip7560Type {
-			fmt.Printf("ALEXF AA Process: block # %d ; tx count: %d ; coinbase: %s ; hash: %s\n", block.Number(), len(block.Transactions()), context.Coinbase, block.Hash().String())
 			validatedTxs, validatedTxsReceipts, validateTxsLogs, err := HandleRip7560Transactions(transactions, i, statedb, &context.Coinbase, header, gp, p.config, p.bc, cfg)
 			receipts = append(receipts, validatedTxsReceipts...)
 			allLogs = append(allLogs, validateTxsLogs...)

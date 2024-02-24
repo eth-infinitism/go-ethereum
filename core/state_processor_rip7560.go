@@ -76,7 +76,7 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 	for i, tx := range transactions[index:] {
 		if tx.Type() == types.Rip7560Type {
 			statedb.SetTxContext(tx.Hash(), index+i)
-			err := BuyGasAATransaction(tx.Rip7560TransactionData(), statedb)
+			err := BuyGasRip7560Transaction(tx.Rip7560TransactionData(), statedb)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -137,9 +137,9 @@ func GetRip7560AccountNonce(config *params.ChainConfig, bc ChainContext, author 
 		Data:              nonceManagerData,
 		AccessList:        make(types.AccessList, 0),
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}
-	resultNonceManager, err := ApplyAATxMessage(vmenv, nonceManagerMsg, gp)
+	resultNonceManager, err := ApplyRip7560FrameMessage(vmenv, nonceManagerMsg, gp)
 	if err != nil {
 		// todo: handle
 		return 777
@@ -161,7 +161,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	txContext := NewEVMTxContext(nonceManagerMsg)
 	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
 
-	resultNonceManager, err := ApplyAATxMessage(evm, nonceManagerMsg, gp)
+	resultNonceManager, err := ApplyRip7560FrameMessage(evm, nonceManagerMsg, gp)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	deployerMsg := prepareDeployerMessage(tx, chainConfig)
 	var deploymentUsedGas uint64
 	if deployerMsg != nil {
-		resultDeployer, err := ApplyAATxMessage(evm, deployerMsg, gp)
+		resultDeployer, err := ApplyRip7560FrameMessage(evm, deployerMsg, gp)
 		if err != nil {
 			return nil, err
 		}
@@ -190,7 +190,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	signer := types.MakeSigner(chainConfig, header.Number, header.Time)
 	signingHash := signer.Hash(tx)
 	accountValidationMsg, err := prepareAccountValidationMessage(tx, chainConfig, signingHash, deploymentUsedGas)
-	resultAccountValidation, err := ApplyAATxMessage(evm, accountValidationMsg, gp)
+	resultAccountValidation, err := ApplyRip7560FrameMessage(evm, accountValidationMsg, gp)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	var pmValidUntil uint64
 	paymasterMsg, err := preparePaymasterValidationMessage(tx, chainConfig, signingHash)
 	if paymasterMsg != nil {
-		resultPm, err := ApplyAATxMessage(evm, paymasterMsg, gp)
+		resultPm, err := ApplyRip7560FrameMessage(evm, paymasterMsg, gp)
 		if err != nil {
 			return nil, err
 		}
@@ -259,7 +259,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	evm := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx, evm.ChainConfig())
-	executionResult, err := ApplyAATxMessage(evm, accountExecutionMsg, gp)
+	executionResult, err := ApplyRip7560FrameMessage(evm, accountExecutionMsg, gp)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		if err != nil {
 			return nil, err
 		}
-		paymasterPostOpResult, err = ApplyAATxMessage(evm, paymasterPostOpMsg, gp)
+		paymasterPostOpResult, err = ApplyRip7560FrameMessage(evm, paymasterPostOpMsg, gp)
 		if err != nil {
 			return nil, err
 		}
@@ -321,7 +321,7 @@ func prepareNonceManagerMessage(baseTx *types.Transaction, chainConfig *params.C
 		Data:              nonceManagerData,
 		AccessList:        make(types.AccessList, 0),
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}
 }
 
@@ -342,7 +342,7 @@ func prepareDeployerMessage(baseTx *types.Transaction, config *params.ChainConfi
 		Data:              tx.DeployerData[20:],
 		AccessList:        make(types.AccessList, 0),
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}
 }
 
@@ -369,7 +369,7 @@ func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *par
 		Data:              validateTransactionData,
 		AccessList:        make(types.AccessList, 0),
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}, nil
 }
 
@@ -401,7 +401,7 @@ func preparePaymasterValidationMessage(baseTx *types.Transaction, config *params
 		Data:              data,
 		AccessList:        make(types.AccessList, 0),
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}, nil
 }
 
@@ -418,7 +418,7 @@ func prepareAccountExecutionMessage(baseTx *types.Transaction, config *params.Ch
 		Data:              tx.Data,
 		AccessList:        tx.AccessList,
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}
 }
 
@@ -451,7 +451,7 @@ func preparePostOpMessage(vpr *ValidationPhaseResult, chainConfig *params.ChainC
 		Data:              postOpData,
 		AccessList:        tx.AccessList,
 		SkipAccountChecks: true,
-		IsInnerAATxFrame:  true,
+		IsRip7560Frame:    true,
 	}, nil
 }
 

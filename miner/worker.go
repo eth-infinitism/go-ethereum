@@ -877,10 +877,9 @@ func (w *worker) commitTransactions(env *environment, txs *transactionsByPriceAn
 			continue
 		}
 
+		// sanity check as this should not happen
 		if tx.Type() == types.Rip7560Type {
-			log.Error("ALEXF: skipping an AA transaction in 'commitTransactions' function")
-			txs.Pop()
-			continue
+			return errors.New("RIP-7560 transaction cannot be handled here")
 		}
 
 		// Error may be ignored here. The error has already been checked
