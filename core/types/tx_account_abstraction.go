@@ -135,7 +135,12 @@ func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *
 }
 
 func (tx *Rip7560AccountAbstractionTx) rawSignatureValues() (v, r, s *big.Int) {
-	return new(big.Int), new(big.Int), new(big.Int)
+	r = big.NewInt(0)
+	r.SetBytes(tx.Signature[0:32])
+	s = big.NewInt(0)
+	s.SetBytes(tx.Signature[32:64])
+	v = big.NewInt(int64(tx.Signature[64]))
+	return v, r, s
 }
 
 func (tx *Rip7560AccountAbstractionTx) setSignatureValues(chainID, v, r, s *big.Int) {
