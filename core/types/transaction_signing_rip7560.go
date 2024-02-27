@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
@@ -26,11 +25,7 @@ func (s rip7560Signer) Sender(tx *Transaction) (common.Address, error) {
 		return common.Address{}, fmt.Errorf("%w: have %d want %d", ErrInvalidChainId, tx.ChainId(), s.chainId)
 	}
 	hash := s.Hash(tx)
-	println("TX HASH = ")
-	println(hex.EncodeToString(hash[:]))
 	address, err := recoverPlain(hash, R, S, V, true)
-	println("TX SIGNER = ")
-	println(address.String())
 	if err != nil {
 		return common.Address{}, err
 	}

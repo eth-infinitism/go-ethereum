@@ -831,6 +831,7 @@ func (w *worker) commitAATransactionsBundle(env *environment, txs *types.Externa
 
 	env.txs = append(env.txs, validatedTxs...)
 	env.receipts = append(env.receipts, receipts...)
+	env.tcount += len(validatedTxs)
 	return err
 }
 

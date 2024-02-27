@@ -1945,12 +1945,12 @@ func (s *TransactionAPI) SendAATransactionsBundle(ctx context.Context, args []Tr
 		ValidForBlock:   creationBlock,
 		Transactions:    txs,
 	}
+	bundleHash := calculateBundleHash(txs)
+	bundle.BundleHash = bundleHash
 	err := SubmitBundle(ctx, s.b, bundle)
 	if err != nil {
 		return common.Hash{}, err
 	}
-	bundleHash := calculateBundleHash(txs)
-	bundle.BundleHash = bundleHash
 	return bundleHash, nil
 }
 

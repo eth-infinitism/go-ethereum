@@ -1,7 +1,6 @@
 package aapool
 
 import (
-	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -9,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -148,7 +148,11 @@ func (pool *AccountAbstractionBundlerPool) Pending(_ bool) map[common.Address][]
 	return nil
 }
 func (pool *AccountAbstractionBundlerPool) PendingBundle() (*types.ExternallyReceivedBundle, error) {
-	return pool.selectExternalBundle(), nil
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	bundle := pool.selectExternalBundle()
+	return bundle, nil
 }
 
 // SubscribeTransactions is not needed for the External Bundler AA sub pool and 'ch' will never be sent anything.
@@ -205,15 +209,12 @@ func (pool *AccountAbstractionBundlerPool) SubmitBundle(bundle *types.Externally
 
 	currentBlock := pool.currentHead.Load().Number
 	nextBlock := big.NewInt(0).Add(currentBlock, big.NewInt(1))
-	msg := fmt.Sprintf("submitted bundle valid for block: %s; next block: %s",
-		bundle.ValidForBlock.String(), nextBlock.String())
+	log.Error("submitted RIP-7560 bundle valid for block", bundle.ValidForBlock.String(), "next block", nextBlock.String())
+	pool.pendingBundles = append(pool.pendingBundles, bundle)
 	if nextBlock.Cmp(bundle.ValidForBlock) == 0 {
-		pool.pendingBundles = append(pool.pendingBundles, bundle)
-		println(msg)
 		pool.txFeed.Send(core.NewTxsEvent{Txs: bundle.Transactions})
-		return nil
 	}
-	return errors.New(msg)
+	return nil
 }
 
 func (pool *AccountAbstractionBundlerPool) GetBundleStatus(hash common.Hash) (*types.BundleReceipt, error) {

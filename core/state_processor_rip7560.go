@@ -317,19 +317,18 @@ func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.Ch
 	return paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, nil
 }
 
-func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) (*ExecutionResult, []byte, error) {
+func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) (*ExecutionResult, error) {
 	var paymasterPostOpResult *ExecutionResult
 	paymasterPostOpMsg, err := preparePostOpMessage(vpr, evm.ChainConfig(), executionResult)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	paymasterPostOpResult, err = ApplyRip7560FrameMessage(evm, paymasterPostOpMsg, gp)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// TODO: revert the execution phase changes
-	root := statedb.IntermediateRoot(true).Bytes()
-	return paymasterPostOpResult, root, nil
+	return paymasterPostOpResult, nil
 }
 
 func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
@@ -357,7 +356,8 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	root := statedb.IntermediateRoot(true).Bytes()
 	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult, root, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp, statedb, header)
+		paymasterPostOpResult, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp, statedb, header)
+		root = statedb.IntermediateRoot(true).Bytes()
 	}
 	if err != nil {
 		return nil, err
