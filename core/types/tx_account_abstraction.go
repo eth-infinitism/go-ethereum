@@ -25,12 +25,16 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-// RIP-7560 Transaction subtypes.
+// RIP-7560 Transaction subtypes
+// TODO: EOA transaction subtypes are not defined in RIP-7560 yet
 const (
-	HeaderCounterSubtype                 = 0x00
-	TransactionPayloadSubtype            = 0x01
-	AggregationHeaderSubtype             = 0x02
-	AggregationTransactionPayloadSubtype = 0x03
+	HeaderCounterSubtype              = 0x00
+	ScaTransactionSubtype             = 0x01
+	EoaTransactionSubtype             = 0x02
+	EoaTransactionDelegateCallSubtype = 0x03
+	EoaTransactionMigrationSubtype    = 0x04
+	AggregationHeaderSubtype          = 0x05
+	AggregationScaTransactionSubtype  = 0x06
 )
 
 // Rip7560AccountAbstractionTx represents an RIP-7560 transaction.
@@ -135,6 +139,9 @@ func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *
 }
 
 func (tx *Rip7560AccountAbstractionTx) rawSignatureValues() (v, r, s *big.Int) {
+	if tx.Subtype != EoaTransactionSubtype {
+		return new(big.Int), new(big.Int), new(big.Int)
+	}
 	r = big.NewInt(0)
 	r.SetBytes(tx.Signature[0:32])
 	s = big.NewInt(0)
@@ -149,13 +156,13 @@ func (tx *Rip7560AccountAbstractionTx) setSignatureValues(chainID, v, r, s *big.
 
 // encode the subtype byte and the payload-bearing bytes of the RIP-7560 transaction
 func (tx *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
-	b.WriteByte(TransactionPayloadSubtype)
+	b.WriteByte(ScaTransactionSubtype)
 	return rlp.Encode(b, tx)
 }
 
 // decode the payload-bearing bytes of the encoded RIP-7560 transaction payload
 func (tx *Rip7560AccountAbstractionTx) decode(input []byte) error {
-	tx.Subtype = TransactionPayloadSubtype
+	tx.Subtype = ScaTransactionSubtype
 	return rlp.DecodeBytes(input[1:], tx)
 }
 

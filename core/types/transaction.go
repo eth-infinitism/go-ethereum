@@ -210,7 +210,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		switch b[1] {
 		case HeaderCounterSubtype:
 			inner = new(Rip7560AccountAbstractionHeaderTx)
-		case TransactionPayloadSubtype:
+		case ScaTransactionSubtype:
 			inner = new(Rip7560AccountAbstractionTx)
 		default:
 			errors.New("RIP-7560 transaction subtype is not supported")

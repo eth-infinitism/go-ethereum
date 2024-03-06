@@ -326,7 +326,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			BigNonce:      (*big.Int)(args.BigNonce),
 		}
 		data = &aatx
-		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex())
+		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex(), "hash", types.NewTx(data).Hash())
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}
 		if args.AccessList != nil {

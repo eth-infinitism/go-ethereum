@@ -1,7 +1,6 @@
 package aapool
 
 import (
-	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
@@ -80,7 +79,6 @@ func (pool *AccountAbstractionBundlerPool) gatherIncludedBundlesStats(newHead *t
 	add := pool.chain.GetBlock(newHead.Hash(), newHead.Number.Uint64())
 	block := add.Transactions()
 
-	fmt.Printf("gatherIncludedBundlesStats for block %d has transactions count %d", add.Number(), len(add.Transactions()))
 	// match transactions in block to bundle ?
 
 	includedBundles := make(map[common.Hash]*types.BundleReceipt)
@@ -209,7 +207,7 @@ func (pool *AccountAbstractionBundlerPool) SubmitBundle(bundle *types.Externally
 
 	currentBlock := pool.currentHead.Load().Number
 	nextBlock := big.NewInt(0).Add(currentBlock, big.NewInt(1))
-	log.Error("submitted RIP-7560 bundle valid for block", bundle.ValidForBlock.String(), "next block", nextBlock.String())
+	log.Error("RIP-7560 bundle submitted", "validForBlock", bundle.ValidForBlock.String(), "nextBlock", nextBlock.String())
 	pool.pendingBundles = append(pool.pendingBundles, bundle)
 	if nextBlock.Cmp(bundle.ValidForBlock) == 0 {
 		pool.txFeed.Send(core.NewTxsEvent{Txs: bundle.Transactions})

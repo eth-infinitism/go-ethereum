@@ -127,11 +127,15 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 	return validatedTransactions, receipts, allLogs, nil
 }
 
+// TODO: not needed with subtype - only use to validate transaction, maybe
 func isTransactionEOA(tx *types.Transaction, statedb *state.StateDB, signer types.Signer) (bool, error) {
 	aatx := tx.Rip7560TransactionData()
-	noSenderCode := statedb.GetCodeSize(*aatx.Sender) == 0 && len(aatx.DeployerData) == 0
+	senderHasCode := statedb.GetCodeSize(*aatx.Sender) != 0 || len(aatx.DeployerData) != 0
+	if senderHasCode {
+		return false, nil
+	}
 	address, err := signer.Sender(tx)
-	if noSenderCode && err != nil {
+	if err != nil {
 		return false, err
 	}
 	if address.Cmp(*tx.Rip7560TransactionData().Sender) != 0 {
