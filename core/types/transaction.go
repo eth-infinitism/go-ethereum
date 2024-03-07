@@ -213,7 +213,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		case ScaTransactionSubtype:
 			inner = new(Rip7560AccountAbstractionTx)
 		default:
-			errors.New("RIP-7560 transaction subtype is not supported")
+			return nil, errors.New("RIP-7560 transaction subtype is not supported")
 		}
 
 	default:
