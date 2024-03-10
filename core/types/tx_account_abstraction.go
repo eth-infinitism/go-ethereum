@@ -232,11 +232,12 @@ type ExternallyReceivedBundle struct {
 // BundleReceipt represents a receipt for an ExternallyReceivedBundle successfully included in a block.
 type BundleReceipt struct {
 	BundleHash          common.Hash
+	Count               uint64
 	Status              uint64 // 0=included / 1=pending / 2=invalid / 3=unknown
 	BlockNumber         uint64
 	BlockHash           common.Hash
 	TransactionReceipts []*Receipt
 	GasUsed             uint64
-	BundlerProfits      *big.Int
+	GasPaidPriority     *big.Int
 	BlockTimestamp      uint64
 }

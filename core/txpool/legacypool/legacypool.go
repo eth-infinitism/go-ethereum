@@ -116,6 +116,8 @@ type BlockChain interface {
 
 	// StateAt returns a state database for a given root hash (generally the head).
 	StateAt(root common.Hash) (*state.StateDB, error)
+
+	GetReceiptsByHash(hash common.Hash) types.Receipts
 }
 
 // Config are the configuration parameters of the transaction pool.

@@ -79,6 +79,7 @@ func (pool *AccountAbstractionBundlerPool) gatherIncludedBundlesStats(newHead *t
 	add := pool.chain.GetBlock(newHead.Hash(), newHead.Number.Uint64())
 	block := add.Transactions()
 
+	receipts := pool.chain.GetReceiptsByHash(add.Hash())
 	// match transactions in block to bundle ?
 
 	includedBundles := make(map[common.Hash]*types.BundleReceipt)
@@ -90,16 +91,16 @@ func (pool *AccountAbstractionBundlerPool) gatherIncludedBundlesStats(newHead *t
 			continue
 		}
 		for i := 0; i < len(block); i++ {
+			transactions := make(types.Transactions, 0)
 			for j := 0; j < len(bundle.Transactions); j++ {
 				blockTx := block[i]
 				bundleTx := bundle.Transactions[j]
 				if bundleTx.Hash().Cmp(blockTx.Hash()) == 0 {
 					// tx hash has matched
+					transactions := append(transactions, blockTx)
 					if j == len(bundle.Transactions)-1 {
 						// FOUND BUNDLE IN BLOCK
-						receipt := &types.BundleReceipt{
-							BundleHash: bundle.BundleHash,
-						}
+						receipt := createBundleReceipt(add, bundle.BundleHash, transactions, receipts)
 						includedBundles[bundle.BundleHash] = receipt
 					} else {
 						// let's see if next tx in bundle matches
@@ -111,6 +112,43 @@ func (pool *AccountAbstractionBundlerPool) gatherIncludedBundlesStats(newHead *t
 
 	}
 	return includedBundles
+}
+
+func createBundleReceipt(block *types.Block, BundleHash common.Hash, transactions types.Transactions, blockReceipts types.Receipts) *types.BundleReceipt {
+	receipts := make(types.Receipts, 0)
+
+OuterLoop:
+	for _, transaction := range transactions {
+		for _, receipt := range blockReceipts {
+			if receipt.TxHash == transaction.Hash() {
+				receipts = append(receipts, receipt)
+				continue OuterLoop
+			}
+		}
+		panic("receipt not found for transaction")
+	}
+
+	var gasUsed uint64 = 0
+	var gasPaidPriority = big.NewInt(0)
+
+	for _, receipt := range receipts {
+		gasUsed += receipt.GasUsed
+		priorityFeePerGas := big.NewInt(0).Sub(receipt.EffectiveGasPrice, block.BaseFee())
+		priorityFeePaid := big.NewInt(0).Mul(big.NewInt(int64(gasUsed)), priorityFeePerGas)
+		gasPaidPriority = big.NewInt(0).Add(gasPaidPriority, priorityFeePaid)
+	}
+
+	return &types.BundleReceipt{
+		BundleHash:          BundleHash,
+		Count:               uint64(len(transactions)),
+		Status:              0,
+		BlockNumber:         block.NumberU64(),
+		BlockHash:           block.Hash(),
+		TransactionReceipts: receipts,
+		GasUsed:             gasUsed,
+		GasPaidPriority:     gasPaidPriority,
+		BlockTimestamp:      block.Time(),
+	}
 }
 
 // SetGasTip is ignored by the External Bundler AA sub pool.
