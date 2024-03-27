@@ -97,7 +97,7 @@ func (pool *AccountAbstractionBundlerPool) gatherIncludedBundlesStats(newHead *t
 				bundleTx := bundle.Transactions[j]
 				if bundleTx.Hash().Cmp(blockTx.Hash()) == 0 {
 					// tx hash has matched
-					transactions := append(transactions, blockTx)
+					transactions = append(transactions, blockTx)
 					if j == len(bundle.Transactions)-1 {
 						// FOUND BUNDLE IN BLOCK
 						receipt := createBundleReceipt(add, bundle.BundleHash, transactions, receipts)
