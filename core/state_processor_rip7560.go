@@ -223,6 +223,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 
 	blockContext := NewEVMBlockContext(header, bc, author)
 	txContext := NewEVMTxContext(nonceManagerMsg)
+	txContext.Origin = *tx.Rip7560TransactionData().Sender
 	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
 
 	resultNonceManager, err := ApplyRip7560FrameMessage(evm, nonceManagerMsg, gp)
@@ -342,6 +343,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	blockContext := NewEVMBlockContext(header, bc, author)
 	message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
 	txContext := NewEVMTxContext(message)
+	txContext.Origin = *vpr.Tx.Rip7560TransactionData().Sender
 	evm := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
 
 	var accountExecutionMsg *Message
