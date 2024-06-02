@@ -16,28 +16,18 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func TestValidation_OOG(t *testing.T) {
-	validatePhase(t, types.Rip7560AccountAbstractionTx{
-		ValidationGas: uint64(1000),
-		GasFeeCap:     big.NewInt(1000000000),
-	}, "out of gas")
+const PREDEPLOYED_SENDER = "0xed0a7aabc745fe5d8bc6ad625c767df86044d049"
+
+type testContext struct {
+	genesisAlloc types.GenesisAlloc
+	t            *testing.T
+	chainContext *ethapi.ChainContext
+	config       *params.ChainConfig
+	gaspool      *core.GasPool
+	genesisBlock *types.Block
 }
 
-func TestValidation_ok(t *testing.T) {
-	validatePhase(t, types.Rip7560AccountAbstractionTx{
-		ValidationGas: uint64(1000000000),
-		GasFeeCap:     big.NewInt(1000000000),
-	}, "")
-}
-
-func validatePhase(t *testing.T, aatx types.Rip7560AccountAbstractionTx, expectedErr string) {
-	Sender := common.HexToAddress("0xed0a7aabc745fe5d8bc6ad625c767df86044d049")
-
-	if aatx.Sender == nil {
-		aatx.Sender = &Sender
-	}
-	tx := types.NewTx(&aatx)
-
+func newTestContext(t *testing.T) *testContext {
 	genesisAlloc := types.GenesisAlloc{}
 	json, err := os.ReadFile("./testdata/prep.json")
 	if err != nil {
@@ -52,24 +42,56 @@ func validatePhase(t *testing.T, aatx types.Rip7560AccountAbstractionTx, expecte
 		Config: params.TestChainConfig,
 		Alloc:  genesisAlloc,
 	}
-	var state = tests.MakePreState(rawdb.NewMemoryDatabase(), genesisAlloc, false, rawdb.HashScheme)
-	defer state.Close()
 	genesisBlock := genesis.ToBlock()
 	gaspool := new(core.GasPool).AddGas(genesisBlock.GasLimit())
 
 	//TODO: fill some mock backend...
 	var backend ethapi.Backend
-	chainContext := ethapi.NewChainContext(context.TODO(), backend)
 
-	config := params.SepoliaChainConfig
-	_, err = core.ApplyRip7560ValidationPhases(config, chainContext, &common.Address{}, gaspool, state.StateDB, genesisBlock.Header(), tx, vm.Config{})
+	return &testContext{
+		t:            t,
+		genesisAlloc: genesisAlloc,
+		chainContext: ethapi.NewChainContext(context.TODO(), backend),
+		config:       params.SepoliaChainConfig,
+		genesisBlock: genesisBlock,
+		gaspool:      gaspool,
+	}
+}
+
+func TestValidation_OOG(t *testing.T) {
+	validatePhase(newTestContext(t), types.Rip7560AccountAbstractionTx{
+		ValidationGas: uint64(1000),
+		GasFeeCap:     big.NewInt(1000000000),
+	}, "out of gas")
+}
+
+func TestValidation_ok(t *testing.T) {
+	validatePhase(newTestContext(t), types.Rip7560AccountAbstractionTx{
+		ValidationGas: uint64(1000000000),
+		GasFeeCap:     big.NewInt(1000000000),
+	}, "")
+}
+
+func validatePhase(t *testContext, aatx types.Rip7560AccountAbstractionTx, expectedErr string) {
+
+	if aatx.Sender == nil {
+		//pre-deployed sender account
+		Sender := common.HexToAddress(PREDEPLOYED_SENDER)
+		aatx.Sender = &Sender
+	}
+	tx := types.NewTx(&aatx)
+
+	var state = tests.MakePreState(rawdb.NewMemoryDatabase(), t.genesisAlloc, false, rawdb.HashScheme)
+	defer state.Close()
+
+	_, err := core.ApplyRip7560ValidationPhases(t.config, t.chainContext, &common.Address{}, t.gaspool, state.StateDB, t.genesisBlock.Header(), tx, vm.Config{})
 	// err string or empty if nil
 	errStr := ""
 	if err != nil {
 		errStr = err.Error()
 	}
 	if errStr != expectedErr {
-		t.Errorf("ApplyRip7560ValidationPhases() got = %v, want %v", err, expectedErr)
+		t.t.Errorf("ApplyRip7560ValidationPhases() got = %v, want %v", err, expectedErr)
 	}
 }
 
