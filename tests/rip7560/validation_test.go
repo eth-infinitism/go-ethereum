@@ -1,13 +1,16 @@
 package rip7560
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
+	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
 	"os"
 	"testing"
@@ -48,11 +51,15 @@ func newTestContext(t *testing.T) *testContext {
 	//TODO: fill some mock backend...
 	var backend ethapi.Backend
 
+	chainConfig := params.AllDevChainProtocolChanges
+	// probably bug in geth..
+	chainConfig.PragueTime = chainConfig.CancunTime
+
 	return &testContext{
 		t:            t,
 		genesisAlloc: genesisAlloc,
 		chainContext: ethapi.NewChainContext(context.TODO(), backend),
-		config:       params.SepoliaChainConfig,
+		config:       chainConfig,
 		genesisBlock: genesisBlock,
 		gaspool:      gaspool,
 	}
@@ -105,9 +112,9 @@ func TestValidation_account_no_return_value(t *testing.T) {
 }
 
 func TestValidation_account_wrong_return_value(t *testing.T) {
-	validatePhase(newTestContext(t).withCode(PREDEPLOYED_SENDER, []byte{
-		byte(vm.PUSH1), 32, byte(vm.PUSH1), 0, byte(vm.RETURN),
-	}, 0), types.Rip7560AccountAbstractionTx{
+	validatePhase(newTestContext(t).withCode(PREDEPLOYED_SENDER,
+		returnData(createCode(1)),
+		0), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000000000),
 		GasFeeCap:     big.NewInt(1000000000),
 	}, "account did not return correct MAGIC_VALUE")
@@ -134,6 +141,51 @@ func validatePhase(t *testContext, aatx types.Rip7560AccountAbstractionTx, expec
 	if errStr != expectedErr {
 		t.t.Errorf("ApplyRip7560ValidationPhases() got '%v', want '%v'", err, expectedErr)
 	}
+}
+
+// generate the code to return the given byte array (up to 32 bytes)
+func returnData(data []byte) []byte {
+	//couldn't get geth to support PUSH0 ...
+	datalen := len(data)
+	if datalen == 0 {
+		data = []byte{0}
+	}
+
+	PUSHn := byte(int(vm.PUSH0) + datalen)
+	ret := createCode(PUSHn, data, vm.PUSH1, 0, vm.MSTORE, vm.PUSH1, 32, vm.PUSH1, 0, vm.RETURN)
+	return ret
+}
+
+// create EVM code from OpCode, byte and []bytes
+func createCode(items ...interface{}) []byte {
+	var buffer bytes.Buffer
+
+	for _, item := range items {
+		switch v := item.(type) {
+		case string:
+			buffer.Write(hexutils.HexToBytes(v))
+		case vm.OpCode:
+
+			buffer.WriteByte(byte(v))
+		case byte:
+
+			buffer.WriteByte(v)
+		case []byte:
+			buffer.Write(v)
+		case int8:
+			buffer.WriteByte(byte(v))
+		case int:
+			if v >= 256 {
+				panic(fmt.Errorf("int defaults to int8 (byte). int16, etc: %v", v))
+			}
+			buffer.WriteByte(byte(v))
+		default:
+			// should be a compile-time error...
+			panic(fmt.Errorf("unsupported type: %T", v))
+		}
+	}
+
+	return buffer.Bytes()
 }
 
 //test failure on non-rip7560
