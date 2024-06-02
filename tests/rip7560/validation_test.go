@@ -58,6 +58,20 @@ func newTestContext(t *testing.T) *testContext {
 	}
 }
 
+func (tt *testContext) withCode(addr string, code []byte, balance int64) *testContext {
+	if len(code) == 0 {
+		tt.genesisAlloc[common.HexToAddress(addr)] = types.Account{
+			Balance: big.NewInt(balance),
+		}
+	} else {
+		tt.genesisAlloc[common.HexToAddress(addr)] = types.Account{
+			Code:    code,
+			Balance: big.NewInt(balance),
+		}
+	}
+	return tt
+}
+
 func TestValidation_OOG(t *testing.T) {
 	validatePhase(newTestContext(t), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000),
@@ -70,6 +84,33 @@ func TestValidation_ok(t *testing.T) {
 		ValidationGas: uint64(1000000000),
 		GasFeeCap:     big.NewInt(1000000000),
 	}, "")
+}
+
+func TestValidation_account_revert(t *testing.T) {
+	validatePhase(newTestContext(t).withCode(PREDEPLOYED_SENDER, []byte{
+		byte(vm.PUSH1), 0, byte(vm.DUP1), byte(vm.REVERT),
+	}, 0), types.Rip7560AccountAbstractionTx{
+		ValidationGas: uint64(1000000000),
+		GasFeeCap:     big.NewInt(1000000000),
+	}, "execution reverted")
+}
+
+func TestValidation_account_no_return_value(t *testing.T) {
+	validatePhase(newTestContext(t).withCode(PREDEPLOYED_SENDER, []byte{
+		byte(vm.PUSH1), 0, byte(vm.DUP1), byte(vm.RETURN),
+	}, 0), types.Rip7560AccountAbstractionTx{
+		ValidationGas: uint64(1000000000),
+		GasFeeCap:     big.NewInt(1000000000),
+	}, "invalid account return data length")
+}
+
+func TestValidation_account_wrong_return_value(t *testing.T) {
+	validatePhase(newTestContext(t).withCode(PREDEPLOYED_SENDER, []byte{
+		byte(vm.PUSH1), 32, byte(vm.PUSH1), 0, byte(vm.RETURN),
+	}, 0), types.Rip7560AccountAbstractionTx{
+		ValidationGas: uint64(1000000000),
+		GasFeeCap:     big.NewInt(1000000000),
+	}, "account did not return correct MAGIC_VALUE")
 }
 
 func validatePhase(t *testContext, aatx types.Rip7560AccountAbstractionTx, expectedErr string) {
@@ -91,7 +132,7 @@ func validatePhase(t *testContext, aatx types.Rip7560AccountAbstractionTx, expec
 		errStr = err.Error()
 	}
 	if errStr != expectedErr {
-		t.t.Errorf("ApplyRip7560ValidationPhases() got = %v, want %v", err, expectedErr)
+		t.t.Errorf("ApplyRip7560ValidationPhases() got '%v', want '%v'", err, expectedErr)
 	}
 }
 
