@@ -118,10 +118,8 @@ func createCode(items ...interface{}) []byte {
 		case string:
 			buffer.Write(hexutils.HexToBytes(v))
 		case vm.OpCode:
-
 			buffer.WriteByte(byte(v))
 		case byte:
-
 			buffer.WriteByte(v)
 		case []byte:
 			buffer.Write(v)

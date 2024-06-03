@@ -34,9 +34,8 @@ func TestValidation_ok(t *testing.T) {
 }
 
 func TestValidation_account_revert(t *testing.T) {
-	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER, []byte{
-		byte(vm.PUSH1), 0, byte(vm.DUP1), byte(vm.REVERT),
-	}, 0), types.Rip7560AccountAbstractionTx{
+	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
+		createCode(vm.PUSH1, 0, vm.DUP1, vm.REVERT), 0), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000000000),
 		GasFeeCap:     big.NewInt(1000000000),
 	}, "execution reverted")
