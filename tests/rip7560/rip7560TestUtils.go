@@ -12,11 +12,10 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
-	"os"
 	"testing"
 )
 
-const PREDEPLOYED_SENDER = "0xed0a7aabc745fe5d8bc6ad625c767df86044d049"
+const DEFAULT_SENDER = "0x1111111111222222222233333333334444444444"
 
 type testContext struct {
 	genesisAlloc types.GenesisAlloc
@@ -40,14 +39,6 @@ type testContextBuilder struct {
 
 func newTestContextBuilder(t *testing.T) *testContextBuilder {
 	genesisAlloc := types.GenesisAlloc{}
-	json, err := os.ReadFile("./testdata/prep.json")
-	if err != nil {
-		panic(err)
-	}
-	err = genesisAlloc.UnmarshalJSON(json)
-	if err != nil {
-		panic(err)
-	}
 
 	chainConfig := params.AllDevChainProtocolChanges
 	// probably bug in geth..

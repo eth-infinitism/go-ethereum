@@ -14,21 +14,27 @@ import (
 )
 
 func TestValidation_OOG(t *testing.T) {
-	validatePhase(newTestContextBuilder(t), types.Rip7560AccountAbstractionTx{
-		ValidationGas: uint64(1000),
+	magic := big.NewInt(0xbf45c166)
+	magic.Lsh(magic, 256-32)
+
+	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER, returnData(magic.Bytes()), 0), types.Rip7560AccountAbstractionTx{
+		ValidationGas: uint64(1),
 		GasFeeCap:     big.NewInt(1000000000),
 	}, "out of gas")
 }
 
 func TestValidation_ok(t *testing.T) {
-	validatePhase(newTestContextBuilder(t), types.Rip7560AccountAbstractionTx{
+	magic := big.NewInt(0xbf45c166)
+	magic.Lsh(magic, 256-32)
+
+	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER, returnData(magic.Bytes()), 0), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000000000),
 		GasFeeCap:     big.NewInt(1000000000),
 	}, "")
 }
 
 func TestValidation_account_revert(t *testing.T) {
-	validatePhase(newTestContextBuilder(t).withCode(PREDEPLOYED_SENDER, []byte{
+	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER, []byte{
 		byte(vm.PUSH1), 0, byte(vm.DUP1), byte(vm.REVERT),
 	}, 0), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000000000),
@@ -37,7 +43,7 @@ func TestValidation_account_revert(t *testing.T) {
 }
 
 func TestValidation_account_no_return_value(t *testing.T) {
-	validatePhase(newTestContextBuilder(t).withCode(PREDEPLOYED_SENDER, []byte{
+	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER, []byte{
 		byte(vm.PUSH1), 0, byte(vm.DUP1), byte(vm.RETURN),
 	}, 0), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000000000),
@@ -46,7 +52,7 @@ func TestValidation_account_no_return_value(t *testing.T) {
 }
 
 func TestValidation_account_wrong_return_value(t *testing.T) {
-	validatePhase(newTestContextBuilder(t).withCode(PREDEPLOYED_SENDER,
+	validatePhase(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
 		returnData(createCode(1)),
 		0), types.Rip7560AccountAbstractionTx{
 		ValidationGas: uint64(1000000000),
@@ -58,7 +64,7 @@ func validatePhase(tb *testContextBuilder, aatx types.Rip7560AccountAbstractionT
 	t := tb.build()
 	if aatx.Sender == nil {
 		//pre-deployed sender account
-		Sender := common.HexToAddress(PREDEPLOYED_SENDER)
+		Sender := common.HexToAddress(DEFAULT_SENDER)
 		aatx.Sender = &Sender
 	}
 	tx := types.NewTx(&aatx)
