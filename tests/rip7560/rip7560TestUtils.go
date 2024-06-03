@@ -22,12 +22,23 @@ type testContext struct {
 	genesisAlloc types.GenesisAlloc
 	t            *testing.T
 	chainContext *ethapi.ChainContext
-	config       *params.ChainConfig
+	chainConfig  *params.ChainConfig
 	gaspool      *core.GasPool
+	genesis      *core.Genesis
 	genesisBlock *types.Block
 }
 
 func newTestContext(t *testing.T) *testContext {
+	return newTestContextBuilder(t).build()
+}
+
+type testContextBuilder struct {
+	t            *testing.T
+	chainConfig  *params.ChainConfig
+	genesisAlloc types.GenesisAlloc
+}
+
+func newTestContextBuilder(t *testing.T) *testContextBuilder {
 	genesisAlloc := types.GenesisAlloc{}
 	json, err := os.ReadFile("./testdata/prep.json")
 	if err != nil {
@@ -38,9 +49,21 @@ func newTestContext(t *testing.T) *testContext {
 		panic(err)
 	}
 
+	chainConfig := params.AllDevChainProtocolChanges
+	// probably bug in geth..
+	chainConfig.PragueTime = chainConfig.CancunTime
+
+	return &testContextBuilder{
+		t:            t,
+		chainConfig:  chainConfig,
+		genesisAlloc: genesisAlloc,
+	}
+}
+
+func (tb *testContextBuilder) build() *testContext {
 	genesis := &core.Genesis{
-		Config: params.TestChainConfig,
-		Alloc:  genesisAlloc,
+		Config: params.AllDevChainProtocolChanges,
+		Alloc:  tb.genesisAlloc,
 	}
 	genesisBlock := genesis.ToBlock()
 	gaspool := new(core.GasPool).AddGas(genesisBlock.GasLimit())
@@ -48,21 +71,24 @@ func newTestContext(t *testing.T) *testContext {
 	//TODO: fill some mock backend...
 	var backend ethapi.Backend
 
-	chainConfig := params.AllDevChainProtocolChanges
-	// probably bug in geth..
-	chainConfig.PragueTime = chainConfig.CancunTime
-
 	return &testContext{
-		t:            t,
-		genesisAlloc: genesisAlloc,
+		t:            tb.t,
+		genesisAlloc: tb.genesisAlloc,
 		chainContext: ethapi.NewChainContext(context.TODO(), backend),
-		config:       chainConfig,
+		chainConfig:  tb.chainConfig,
+		genesis:      genesis,
 		genesisBlock: genesisBlock,
 		gaspool:      gaspool,
 	}
 }
 
-func (tt *testContext) withCode(addr string, code []byte, balance int64) *testContext {
+// add EOA account with balance
+func (tt *testContextBuilder) withAccount(addr string, balance int64) *testContextBuilder {
+	tt.genesisAlloc[common.HexToAddress(addr)] = types.Account{Balance: big.NewInt(balance)}
+	return tt
+}
+
+func (tt *testContextBuilder) withCode(addr string, code []byte, balance int64) *testContextBuilder {
 	if len(code) == 0 {
 		tt.genesisAlloc[common.HexToAddress(addr)] = types.Account{
 			Balance: big.NewInt(balance),
@@ -82,6 +108,9 @@ func returnData(data []byte) []byte {
 	datalen := len(data)
 	if datalen == 0 {
 		data = []byte{0}
+	}
+	if datalen > 32 {
+		panic(fmt.Errorf("data length is too big %v", data))
 	}
 
 	PUSHn := byte(int(vm.PUSH0) + datalen)
