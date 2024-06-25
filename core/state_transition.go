@@ -68,7 +68,10 @@ func (result *ExecutionResult) Revert() []byte {
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
-func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation, isHomestead, isEIP2028, isEIP3860 bool) (uint64, error) {
+func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation, isHomestead, isEIP2028, isEIP3860 bool, isRIP7560InnerFrame ...bool) (uint64, error) {
+	if isRIP7560InnerFrame != nil && len(isRIP7560InnerFrame) > 0 && isRIP7560InnerFrame[0] {
+		return 0, nil
+	}
 	// Set the starting gas for the raw transaction
 	var gas uint64
 	if isContractCreation && isHomestead {
@@ -146,6 +149,7 @@ type Message struct {
 	// account nonce in state. It also disables checking that the sender is an EOA.
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
+	IsRip7560Frame    bool
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -357,6 +361,15 @@ func (st *StateTransition) preCheck() error {
 			}
 		}
 	}
+
+	// no need to "buy gus" for individual frames
+	// there is a single shared gas pre-charge
+	if st.msg.IsRip7560Frame {
+		st.gasRemaining += st.msg.GasLimit
+		st.initialGas = st.msg.GasLimit
+		return nil
+	}
+
 	return st.buyGas()
 }
 
@@ -394,7 +407,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai)
+	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, msg.IsRip7560Frame)
 	if err != nil {
 		return nil, err
 	}

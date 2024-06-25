@@ -173,6 +173,7 @@ var (
 		EIP150Block:                   big.NewInt(0),
 		EIP155Block:                   big.NewInt(0),
 		EIP158Block:                   big.NewInt(0),
+		RIP7560Block:                  big.NewInt(0),
 		ByzantiumBlock:                big.NewInt(0),
 		ConstantinopleBlock:           big.NewInt(0),
 		PetersburgBlock:               big.NewInt(0),
@@ -336,6 +337,8 @@ type ChainConfig struct {
 	EIP155Block *big.Int `json:"eip155Block,omitempty"` // EIP155 HF block
 	EIP158Block *big.Int `json:"eip158Block,omitempty"` // EIP158 HF block
 
+	RIP7560Block *big.Int `json:"rip7560block,omitempty"` // RIP7560 HF block
+
 	ByzantiumBlock      *big.Int `json:"byzantiumBlock,omitempty"`      // Byzantium switch block (nil = no fork, 0 = already on byzantium)
 	ConstantinopleBlock *big.Int `json:"constantinopleBlock,omitempty"` // Constantinople switch block (nil = no fork, 0 = already activated)
 	PetersburgBlock     *big.Int `json:"petersburgBlock,omitempty"`     // Petersburg switch block (nil = same as Constantinople)
@@ -368,6 +371,10 @@ type ChainConfig struct {
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+
+	// RIP-7560 specific config parameters
+	EntryPointAddress     common.Address `json:"entryPointAddress,omitempty"`
+	DeployerCallerAddress common.Address `json:"deployerCallerAddress,omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -584,6 +591,11 @@ func (c *ChainConfig) IsVerkle(num *big.Int, time uint64) bool {
 // IsEIP4762 returns whether eip 4762 has been activated at given block.
 func (c *ChainConfig) IsEIP4762(num *big.Int, time uint64) bool {
 	return c.IsVerkle(num, time)
+}
+
+// IsRIP7560 returns whether num is either equal to the RIP7560 fork block or greater.
+func (c *ChainConfig) IsRIP7560(num *big.Int) bool {
+	return isBlockForked(c.RIP7560Block, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported

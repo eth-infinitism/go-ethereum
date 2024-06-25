@@ -74,6 +74,18 @@ type TransactionArgs struct {
 
 	// This configures whether blobs are allowed to be passed.
 	blobSidecarAllowed bool
+
+	// Introduced by RIP-7560 Transaction
+	Sender        *common.Address `json:"sender"`
+	Signature     *hexutil.Bytes
+	Paymaster     *common.Address `json:"paymaster,omitempty"`
+	PaymasterData *hexutil.Bytes  `json:"paymasterData,omitempty"`
+	Deployer      *common.Address `json:"deployer,omitempty"`
+	DeployerData  *hexutil.Bytes  `json:"deployerData,omitempty"`
+	BuilderFee    *hexutil.Big
+	ValidationGas *hexutil.Uint64 `json:"verificationGasLimit"`
+	PaymasterGas  *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
+	PostOpGas     *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
 }
 
 // from retrieves the transaction sender address.
@@ -472,6 +484,35 @@ func (args *TransactionArgs) ToMessage(baseFee *big.Int) *core.Message {
 func (args *TransactionArgs) ToTransaction() *types.Transaction {
 	var data types.TxData
 	switch {
+	case args.Sender != nil:
+		al := types.AccessList{}
+		if args.AccessList != nil {
+			al = *args.AccessList
+		}
+		aatx := types.Rip7560AccountAbstractionTx{
+			To:         &common.Address{},
+			ChainID:    (*big.Int)(args.ChainID),
+			Gas:        uint64(*args.Gas),
+			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
+			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			Value:      (*big.Int)(args.Value),
+			Data:       args.data(),
+			AccessList: al,
+			// RIP-7560 parameters
+			Sender:        args.Sender,
+			Signature:     *args.Signature,
+			Paymaster:     args.Paymaster,
+			PaymasterData: *args.PaymasterData,
+			Deployer:      args.Deployer,
+			DeployerData:  *args.DeployerData,
+			BuilderFee:    (*big.Int)(args.BuilderFee),
+			ValidationGas: uint64(*args.ValidationGas),
+			PaymasterGas:  uint64(*args.PaymasterGas),
+			PostOpGas:     uint64(*args.PostOpGas),
+		}
+		data = &aatx
+		hash := types.NewTx(data).Hash()
+		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex(), "hash", hash)
 	case args.BlobHashes != nil:
 		al := types.AccessList{}
 		if args.AccessList != nil {
