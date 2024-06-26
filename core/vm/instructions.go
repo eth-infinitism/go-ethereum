@@ -341,10 +341,15 @@ func opReturnDataCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeConte
 func opExtCodeSize(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	slot := scope.Stack.peek()
 	address := slot.Bytes20()
+
 	if witness := interpreter.evm.StateDB.Witness(); witness != nil {
-		witness.AddCode(interpreter.evm.StateDB.GetCode(address))
+		code := interpreter.evm.StateDB.GetCode(address)
+		witness.AddCode(code)
+		if addr, ok := types.ParseDelegation(code); ok {
+			witness.AddCode(interpreter.evm.StateDB.GetCode(addr))
+		}
 	}
-	slot.SetUint64(uint64(interpreter.evm.StateDB.GetCodeSize(slot.Bytes20())))
+	slot.SetUint64(uint64(len(interpreter.evm.StateDB.ResolveCode(slot.Bytes20()))))
 	return nil, nil
 }
 
@@ -382,7 +387,7 @@ func opExtCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext)
 		uint64CodeOffset = math.MaxUint64
 	}
 	addr := common.Address(a.Bytes20())
-	code := interpreter.evm.StateDB.GetCode(addr)
+	code := interpreter.evm.StateDB.ResolveCode(addr)
 	if witness := interpreter.evm.StateDB.Witness(); witness != nil {
 		witness.AddCode(code)
 	}
@@ -394,7 +399,7 @@ func opExtCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext)
 
 // opExtCodeHash returns the code hash of a specified account.
 // There are several cases when the function is called, while we can relay everything
-// to `state.GetCodeHash` function to ensure the correctness.
+// to `state.ResolveCodeHash` function to ensure the correctness.
 //
 //  1. Caller tries to get the code hash of a normal contract account, state
 //     should return the relative code hash and set it as the result.
@@ -407,6 +412,9 @@ func opExtCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext)
 //
 //  4. Caller tries to get the code hash of a precompiled account, the result should be
 //     zero or emptyCodeHash.
+//
+//  4. Caller tries to get the code hash of a delegated account, the result should be
+//     equal the result of calling extcodehash on the account directly.
 //
 // It is worth noting that in order to avoid unnecessary create and clean, all precompile
 // accounts on mainnet have been transferred 1 wei, so the return here should be
@@ -424,7 +432,7 @@ func opExtCodeHash(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext)
 	if interpreter.evm.StateDB.Empty(address) {
 		slot.Clear()
 	} else {
-		slot.SetBytes(interpreter.evm.StateDB.GetCodeHash(address).Bytes())
+		slot.SetBytes(interpreter.evm.StateDB.ResolveCodeHash(address).Bytes())
 	}
 	return nil, nil
 }
