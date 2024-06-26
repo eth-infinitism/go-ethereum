@@ -124,6 +124,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	deployerMsg := prepareDeployerMessage(tx, chainConfig)
 	var deploymentUsedGas uint64
 	if deployerMsg != nil {
+		if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
+			evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, deployerMsg.From)
+		}
 		resultDeployer, err := ApplyMessage(evm, deployerMsg, gp)
 		if err != nil {
 			return nil, err
@@ -140,6 +143,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	signer := types.MakeSigner(chainConfig, header.Number, header.Time)
 	signingHash := signer.Hash(tx)
 	accountValidationMsg, err := prepareAccountValidationMessage(tx, chainConfig, signingHash, deploymentUsedGas)
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
+		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, accountValidationMsg.From)
+	}
 	resultAccountValidation, err := ApplyMessage(evm, accountValidationMsg, gp)
 	if err != nil {
 		return nil, err
@@ -185,6 +191,9 @@ func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.Ch
 		return nil, 0, 0, 0, err
 	}
 	if paymasterMsg != nil {
+		if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
+			evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, paymasterMsg.From)
+		}
 		resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
 		if err != nil {
 			return nil, 0, 0, 0, err

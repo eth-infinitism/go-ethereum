@@ -59,12 +59,24 @@ func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Trace
 			return nil, err
 		}
 	}
+	allowedOpcodeRegex, err := regexp.Compile(
+		`^(DUP\d+|PUSH\d+|SWAP\d+|POP|ADD|SUB|MUL|DIV|EQ|LTE?|S?GTE?|SLT|SH[LR]|AND|OR|NOT|ISZERO)$`,
+	)
+	if err != nil {
+		return nil, err
+	}
 	t := &rip7560ValidationTracer{
 		TraceResults: make([]stateMap, ValidationFramesMaxCount),
 		UsedOpcodes:  make([]map[string]bool, ValidationFramesMaxCount),
 		Created:      make([]map[common.Address]bool, ValidationFramesMaxCount),
-		Deleted:      make([]map[common.Address]bool, ValidationFramesMaxCount),
+		//Deleted:      make([]map[common.Address]bool, ValidationFramesMaxCount),
+
+		allowedOpcodeRegex: allowedOpcodeRegex,
+		lastThreeOpCodes:   make([]*lastThreeOpCodesItem, 0),
+		CurrentLevel:       nil,
+		lastOp:             "",
 	}
+
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
 			OnTxStart: t.OnTxStart,
@@ -82,12 +94,13 @@ type rip7560ValidationTracer struct {
 	TraceResults []stateMap                `json:"traceResults"`
 	UsedOpcodes  []map[string]bool         `json:"usedOpcodes"`
 	Created      []map[common.Address]bool `json:"created"`
-	Deleted      []map[common.Address]bool `json:"deleted"`
+	//Deleted      []map[common.Address]bool `json:"deleted"`
 
-	lastThreeOpCodes   []*lastThreeOpCodesItem
-	allowedOpcodeRegex *regexp.Regexp `json:"allowed_opcode_regex,omitempty"`
-	CurrentLevel       *entryPointCall
-	lastOp             string
+	lastThreeOpCodes    []*lastThreeOpCodesItem
+	allowedOpcodeRegex  *regexp.Regexp `json:"allowed_opcode_regex,omitempty"`
+	CurrentLevel        *entryPointCall
+	lastOp              string
+	CallsFromEntryPoint []*entryPointCall `json:"calls_from_entry_point,omitempty"`
 
 	// todo
 	//interrupt atomic.Bool // Atomic flag to signal execution interruption
@@ -95,8 +108,29 @@ type rip7560ValidationTracer struct {
 }
 
 func (b *rip7560ValidationTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
+	b.env = env
+	b.createNewTopLevelFrame()
 	// I think this is where we need to create a new "entryPointCall" instance
 	println("AAAAA ALEXF OnTxStart")
+}
+
+func (b *rip7560ValidationTracer) createNewTopLevelFrame() {
+	// todo: pass call frame details here
+	addr := common.Address{}
+	sig := make([]byte, 0)
+
+	b.CurrentLevel = &entryPointCall{
+		TopLevelMethodSig:     sig,
+		TopLevelTargetAddress: addr,
+		Access:                map[common.Address]*access{},
+		Opcodes:               map[string]uint64{},
+		ExtCodeAccessInfo:     map[common.Address]string{},
+		ContractSize:          map[common.Address]*contractSizeVal{},
+		OOG:                   false,
+	}
+	b.CallsFromEntryPoint = append(b.CallsFromEntryPoint, b.CurrentLevel)
+	b.lastOp = ""
+	return
 }
 
 func (b *rip7560ValidationTracer) OnTxEnd(receipt *types.Receipt, err error) {
@@ -205,7 +239,7 @@ func (b *rip7560ValidationTracer) OnOpcode(pc uint64, op byte, gas, cost uint64,
 			_, rOk := access.Reads[slotHex]
 			_, wOk := access.Writes[slotHex]
 			if !rOk && !wOk {
-				access.Reads[slotHex] = string(b.env.StateDB.GetState(addr, slot).Hex())
+				access.Reads[slotHex] = b.env.StateDB.GetState(addr, slot).Hex()
 			}
 		} else {
 			b.incrementCount(access.Writes, slotHex)
