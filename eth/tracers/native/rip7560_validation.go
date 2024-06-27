@@ -65,6 +65,7 @@ func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Trace
 	if err != nil {
 		return nil, err
 	}
+	// TODO FIX mock fields
 	t := &rip7560ValidationTracer{
 		TraceResults: make([]stateMap, ValidationFramesMaxCount),
 		UsedOpcodes:  make([]map[string]bool, ValidationFramesMaxCount),
@@ -75,10 +76,14 @@ func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Trace
 		lastThreeOpCodes:   make([]*lastThreeOpCodesItem, 0),
 		CurrentLevel:       nil,
 		lastOp:             "",
+		Calls:              make([]*callsItem, 0),
+		Keccak:             make([]hexutil.Bytes, 0),
+		Logs:               make([]*logsItem, 0),
 	}
 
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
+			OnEnter:   t.OnEnter,
 			OnTxStart: t.OnTxStart,
 			OnTxEnd:   t.OnTxEnd,
 			OnOpcode:  t.OnOpcode,
@@ -86,6 +91,27 @@ func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Trace
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
 	}, nil
+}
+
+type callsItem struct {
+	// Common
+	Type string `json:"type"`
+
+	// Enter info
+	From   common.Address `json:"from"`
+	To     common.Address `json:"to"`
+	Method hexutil.Bytes  `json:"method"`
+	Value  *hexutil.Big   `json:"value"`
+	Gas    uint64         `json:"gas"`
+
+	// Exit info
+	GasUsed uint64        `json:"gasUsed"`
+	Data    hexutil.Bytes `json:"data"`
+}
+
+type logsItem struct {
+	Data  hexutil.Bytes   `json:"data"`
+	Topic []hexutil.Bytes `json:"topic"`
 }
 
 // Array fields contain of all access details of all validation frames
@@ -97,27 +123,31 @@ type rip7560ValidationTracer struct {
 	//Deleted      []map[common.Address]bool `json:"deleted"`
 
 	lastThreeOpCodes    []*lastThreeOpCodesItem
-	allowedOpcodeRegex  *regexp.Regexp `json:"allowed_opcode_regex,omitempty"`
+	allowedOpcodeRegex  *regexp.Regexp `json:"allowedOpcodeRegex,omitempty"`
 	CurrentLevel        *entryPointCall
 	lastOp              string
-	CallsFromEntryPoint []*entryPointCall `json:"calls_from_entry_point,omitempty"`
+	CallsFromEntryPoint []*entryPointCall `json:"callsFromEntryPoint,omitempty"`
+	Keccak              []hexutil.Bytes   `json:"keccak"`
+	Calls               []*callsItem      `json:"calls"`
+	Logs                []*logsItem       `json:"logs"`
 
 	// todo
 	//interrupt atomic.Bool // Atomic flag to signal execution interruption
 	//reason    error       // Textual reason for the interruption
 }
 
-func (b *rip7560ValidationTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
-	b.env = env
-	b.createNewTopLevelFrame()
-	// I think this is where we need to create a new "entryPointCall" instance
-	println("AAAAA ALEXF OnTxStart")
+func (b *rip7560ValidationTracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	if depth == 0 {
+		b.createNewTopLevelFrame(to, input[0:4])
+	}
 }
 
-func (b *rip7560ValidationTracer) createNewTopLevelFrame() {
+func (b *rip7560ValidationTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
+	b.env = env
+}
+
+func (b *rip7560ValidationTracer) createNewTopLevelFrame(addr common.Address, sig hexutil.Bytes) {
 	// todo: pass call frame details here
-	addr := common.Address{}
-	sig := make([]byte, 0)
 
 	b.CurrentLevel = &entryPointCall{
 		TopLevelMethodSig:     sig,
