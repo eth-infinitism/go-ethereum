@@ -101,8 +101,8 @@ func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.St
 
 	chargeFrom := *st.Sender
 
-	if len(st.PaymasterData) >= 20 {
-		chargeFrom = [20]byte(st.PaymasterData[:20])
+	if st.Paymaster.Cmp(common.Address{}) != 0 {
+		chargeFrom = *st.Paymaster
 	}
 
 	if have, want := state.GetBalance(chargeFrom), balanceCheck; have.Cmp(want) < 0 {
@@ -120,13 +120,15 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		GasPrice: tx.GasFeeCap(),
 	}
 	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
+
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
+		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, common.Address{})
+	}
+
 	/*** Deployer Frame ***/
 	deployerMsg := prepareDeployerMessage(tx, chainConfig)
 	var deploymentUsedGas uint64
 	if deployerMsg != nil {
-		if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
-			evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, deployerMsg.From)
-		}
 		resultDeployer, err := ApplyMessage(evm, deployerMsg, gp)
 		if err != nil {
 			return nil, err
@@ -143,9 +145,6 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	signer := types.MakeSigner(chainConfig, header.Number, header.Time)
 	signingHash := signer.Hash(tx)
 	accountValidationMsg, err := prepareAccountValidationMessage(tx, chainConfig, signingHash, deploymentUsedGas)
-	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
-		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, accountValidationMsg.From)
-	}
 	resultAccountValidation, err := ApplyMessage(evm, accountValidationMsg, gp)
 	if err != nil {
 		return nil, err
@@ -191,9 +190,6 @@ func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.Ch
 		return nil, 0, 0, 0, err
 	}
 	if paymasterMsg != nil {
-		if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
-			evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, paymasterMsg.From)
-		}
 		resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
 		if err != nil {
 			return nil, 0, 0, 0, err
@@ -279,19 +275,18 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 func prepareDeployerMessage(baseTx *types.Transaction, config *params.ChainConfig) *Message {
 	tx := baseTx.Rip7560TransactionData()
-	if len(tx.DeployerData) < 20 {
+	if tx.Deployer.Cmp(common.Address{}) == 0 {
 		return nil
 	}
-	var deployerAddress common.Address = [20]byte(tx.DeployerData[0:20])
 	return &Message{
 		From:              config.DeployerCallerAddress,
-		To:                &deployerAddress,
+		To:                tx.Deployer,
 		Value:             big.NewInt(0),
 		GasLimit:          tx.ValidationGas,
 		GasPrice:          tx.GasFeeCap,
 		GasFeeCap:         tx.GasFeeCap,
 		GasTipCap:         tx.GasTipCap,
-		Data:              tx.DeployerData[20:],
+		Data:              tx.DeployerData,
 		AccessList:        make(types.AccessList, 0),
 		SkipAccountChecks: true,
 		IsRip7560Frame:    true,
@@ -327,10 +322,6 @@ func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *par
 
 func preparePaymasterValidationMessage(baseTx *types.Transaction, config *params.ChainConfig, signingHash common.Hash) (*Message, error) {
 	tx := baseTx.Rip7560TransactionData()
-	if len(tx.PaymasterData) < 20 {
-		return nil, nil
-	}
-	var paymasterAddress common.Address = [20]byte(tx.PaymasterData[0:20])
 	jsondata := `[
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
 	]`
@@ -344,7 +335,7 @@ func preparePaymasterValidationMessage(baseTx *types.Transaction, config *params
 	}
 	return &Message{
 		From:              config.EntryPointAddress,
-		To:                &paymasterAddress,
+		To:                tx.Paymaster,
 		Value:             big.NewInt(0),
 		GasLimit:          tx.PaymasterGas,
 		GasPrice:          tx.GasFeeCap,
@@ -391,10 +382,9 @@ func preparePostOpMessage(vpr *ValidationPhaseResult, chainConfig *params.ChainC
 	if err != nil {
 		return nil, err
 	}
-	var paymasterAddress common.Address = [20]byte(tx.PaymasterData[0:20])
 	return &Message{
 		From:              chainConfig.EntryPointAddress,
-		To:                &paymasterAddress,
+		To:                tx.Paymaster,
 		Value:             big.NewInt(0),
 		GasLimit:          tx.PaymasterGas - executionResult.UsedGas,
 		GasPrice:          tx.GasFeeCap,
