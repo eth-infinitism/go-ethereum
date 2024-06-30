@@ -136,7 +136,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		statedb.IntermediateRoot(true)
 		if resultDeployer.Failed() {
 			// TODO: bubble up the inner error message to the user, if possible
-			return nil, errors.New("account deployment  failed - invalid transaction")
+			return nil, errors.New("account deployment failed - invalid transaction")
 		}
 		deploymentUsedGas = resultDeployer.UsedGas
 	}
@@ -322,6 +322,9 @@ func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *par
 
 func preparePaymasterValidationMessage(baseTx *types.Transaction, config *params.ChainConfig, signingHash common.Hash) (*Message, error) {
 	tx := baseTx.Rip7560TransactionData()
+	if tx.Paymaster.Cmp(common.Address{}) == 0 {
+		return nil, nil
+	}
 	jsondata := `[
 	{"type":"function","name":"validatePaymasterTransaction","inputs": [{"name": "version","type": "uint256"},{"name": "txHash","type": "bytes32"},{"name": "transaction","type": "bytes"}]}
 	]`

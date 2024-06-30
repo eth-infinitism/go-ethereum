@@ -39,7 +39,7 @@ type access struct {
 
 // note - this means an individual 'frame' in 7560 (validate, execute, postOp)
 type entryPointCall struct {
-	TopLevelMethodSig     hexutil.Bytes                       `json:"topLevelMethodSig"`
+	//TopLevelMethodSig     hexutil.Bytes                       `json:"topLevelMethodSig"`
 	TopLevelTargetAddress common.Address                      `json:"topLevelTargetAddress"`
 	Access                map[common.Address]*access          `json:"access"`
 	Opcodes               map[string]uint64                   `json:"opcodes"`
@@ -116,6 +116,8 @@ type logsItem struct {
 
 // Array fields contain of all access details of all validation frames
 type rip7560ValidationTracer struct {
+	//rip7560TxData *types.Rip7560AccountAbstractionTx
+
 	env          *tracing.VMContext
 	TraceResults []stateMap                `json:"traceResults"`
 	UsedOpcodes  []map[string]bool         `json:"usedOpcodes"`
@@ -138,19 +140,17 @@ type rip7560ValidationTracer struct {
 
 func (b *rip7560ValidationTracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
 	if depth == 0 {
-		b.createNewTopLevelFrame(to, input[0:4])
+		b.createNewTopLevelFrame(to)
 	}
 }
 
 func (b *rip7560ValidationTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
 	b.env = env
+	//b.rip7560TxData = tx.Rip7560TransactionData()
 }
 
-func (b *rip7560ValidationTracer) createNewTopLevelFrame(addr common.Address, sig hexutil.Bytes) {
-	// todo: pass call frame details here
-
+func (b *rip7560ValidationTracer) createNewTopLevelFrame(addr common.Address) {
 	b.CurrentLevel = &entryPointCall{
-		TopLevelMethodSig:     sig,
 		TopLevelTargetAddress: addr,
 		Access:                map[common.Address]*access{},
 		Opcodes:               map[string]uint64{},
