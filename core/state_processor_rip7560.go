@@ -275,7 +275,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 func prepareDeployerMessage(baseTx *types.Transaction, config *params.ChainConfig) *Message {
 	tx := baseTx.Rip7560TransactionData()
-	if tx.Deployer.Cmp(common.Address{}) == 0 {
+	if tx.Deployer == nil || tx.Deployer.Cmp(common.Address{}) == 0 {
 		return nil
 	}
 	return &Message{
@@ -322,7 +322,7 @@ func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *par
 
 func preparePaymasterValidationMessage(baseTx *types.Transaction, config *params.ChainConfig, signingHash common.Hash) (*Message, error) {
 	tx := baseTx.Rip7560TransactionData()
-	if tx.Paymaster.Cmp(common.Address{}) == 0 {
+	if tx.Paymaster == nil || tx.Paymaster.Cmp(common.Address{}) == 0 {
 		return nil, nil
 	}
 	jsondata := `[
