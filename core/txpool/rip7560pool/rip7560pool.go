@@ -1,6 +1,7 @@
 package rip7560pool
 
 import (
+	"context"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
@@ -8,14 +9,19 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rpc"
 	"math/big"
+	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Config struct {
-	MaxBundleSize uint
-	MaxBundleGas  uint
+	MaxBundleSize *uint64
+	MaxBundleGas  *uint64
+	PullUrls      []string
 }
 
 // Rip7560BundlerPool is the transaction pool dedicated to RIP-7560 AA transactions.
@@ -188,7 +194,8 @@ func (pool *Rip7560BundlerPool) PendingRip7560Bundle() (*types.ExternallyReceive
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	bundle := pool.selectExternalBundle()
+	bundle := pool.fetchBundleFromBundler()
+	//bundle := pool.selectExternalBundle()
 	return bundle, nil
 }
 
@@ -259,6 +266,43 @@ func (pool *Rip7560BundlerPool) GetRip7560BundleStatus(hash common.Hash) (*types
 	defer pool.mu.Unlock()
 
 	return pool.includedBundles[hash], nil
+}
+
+type echoResult struct {
+	String string
+	Int    int
+}
+
+type GetRip7560BundleArgs struct {
+	MinBaseFee    uint64
+	MaxBundleGas  uint64
+	MaxBundleSize uint64
+}
+
+func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceivedBundle {
+	currentHead := pool.currentHead.Load()
+	for _, url := range pool.config.PullUrls {
+		client := rpc.WithHTTPClient(&http.Client{Timeout: 500 * time.Millisecond})
+		cl, err := rpc.DialOptions(context.Background(), url, client)
+		if err != nil {
+			os.Exit(666)
+		}
+		maxBundleGas := min(*pool.config.MaxBundleGas, currentHead.GasLimit)
+		args := &GetRip7560BundleArgs{
+			MinBaseFee:    currentHead.BaseFee.Uint64(), // todo: adjust to account for possible change!
+			MaxBundleGas:  maxBundleGas,
+			MaxBundleSize: *pool.config.MaxBundleSize,
+		}
+		result := &echoResult{}
+		err = cl.Call(result, "eth_getRip7560Bundle", &echoResult{String: "THIS IS A REQUEST!"}, args)
+		if err != nil {
+			os.Exit(666)
+		}
+		println("fetchBundleFromBundler returned")
+	}
+	return &types.ExternallyReceivedBundle{
+		BundlerId: "result.String",
+	}
 }
 
 // return first bundle

@@ -58,6 +58,9 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		RPCTxFeeCap             float64
 		OverrideCancun          *uint64 `toml:",omitempty"`
 		OverrideVerkle          *uint64 `toml:",omitempty"`
+		Rip7560MaxBundleGas     *uint64 `toml:",omitempty"`
+		Rip7560MaxBundleSize    *uint64 `toml:",omitempty"`
+		Rip7560PullUrls         []string
 	}
 	var enc Config
 	enc.Genesis = c.Genesis
@@ -101,6 +104,9 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.RPCTxFeeCap = c.RPCTxFeeCap
 	enc.OverrideCancun = c.OverrideCancun
 	enc.OverrideVerkle = c.OverrideVerkle
+	enc.Rip7560MaxBundleGas = c.Rip7560MaxBundleGas
+	enc.Rip7560MaxBundleSize = c.Rip7560MaxBundleSize
+	enc.Rip7560PullUrls = c.Rip7560PullUrls
 	return &enc, nil
 }
 
@@ -148,6 +154,9 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		RPCTxFeeCap             *float64
 		OverrideCancun          *uint64 `toml:",omitempty"`
 		OverrideVerkle          *uint64 `toml:",omitempty"`
+		Rip7560MaxBundleGas     *uint64 `toml:",omitempty"`
+		Rip7560MaxBundleSize    *uint64 `toml:",omitempty"`
+		Rip7560PullUrls         []string
 	}
 	var dec Config
 	if err := unmarshal(&dec); err != nil {
@@ -275,6 +284,15 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.OverrideVerkle != nil {
 		c.OverrideVerkle = dec.OverrideVerkle
+	}
+	if dec.Rip7560MaxBundleGas != nil {
+		c.Rip7560MaxBundleGas = dec.Rip7560MaxBundleGas
+	}
+	if dec.Rip7560MaxBundleSize != nil {
+		c.Rip7560MaxBundleSize = dec.Rip7560MaxBundleSize
+	}
+	if dec.Rip7560PullUrls != nil {
+		c.Rip7560PullUrls = dec.Rip7560PullUrls
 	}
 	return nil
 }
