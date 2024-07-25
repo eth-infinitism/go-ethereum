@@ -11,6 +11,7 @@ import (
 	"github.com/holiman/uint256"
 	"math/big"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -287,26 +288,32 @@ func (b *rip7560ValidationTracer) OnOpcode(pc uint64, op byte, gas, cost uint64,
 	if opcode == "KECCAK256" {
 		// TODO: uncomment and fix with StackBack
 		// collect keccak on 64-byte blocks
-		//	ofs := scope.Stack.Back(0).ToBig().Int64()
-		//	len := scope.Stack.Back(1).ToBig().Int64()
+		ofs := StackBack(scope.StackData(), 0)
+		len := StackBack(scope.StackData(), 1)
+		memory := scope.MemoryData()
 		//	// currently, solidity uses only 2-word (6-byte) for a key. this might change..still, no need to
 		//	// return too much
-		//	if len > 20 && len < 512 {
-		//		b.Keccak = append(b.Keccak, scope.Memory.GetCopy(ofs, len))
-		//	}
-		//} else if strings.HasPrefix(opcode, "LOG") {
-		//	count, _ := strconv.Atoi(opcode[3:])
-		//	ofs := scope.Stack.Back(0).ToBig().Int64()
-		//	len := scope.Stack.Back(1).ToBig().Int64()
-		//	topics := []hexutil.Bytes{}
-		//	for i := 0; i < count; i++ {
-		//		topics = append(topics, scope.Stack.Back(2+i).Bytes())
-		//	}
-		//
-		//	b.Logs = append(b.Logs, &logsItem{
-		//		Data:  scope.Memory.GetCopy(ofs, len),
-		//		Topic: topics,
-		//	})
+		if len.Uint64() > 20 && len.Uint64() < 512 {
+			keccak := make([]byte, len.Uint64())
+			copy(keccak, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
+			b.Keccak = append(b.Keccak, keccak)
+		}
+	} else if strings.HasPrefix(opcode, "LOG") {
+		count, _ := strconv.Atoi(opcode[3:])
+		ofs := StackBack(scope.StackData(), 0)
+		len := StackBack(scope.StackData(), 1)
+		memory := scope.MemoryData()
+		topics := []hexutil.Bytes{}
+		for i := 0; i < count; i++ {
+			topics = append(topics, StackBack(scope.StackData(), 2+i).Bytes())
+			//topics = append(topics, scope.Stack.Back(2+i).Bytes())
+		}
+		log := make([]byte, len.Uint64())
+		copy(log, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
+		b.Logs = append(b.Logs, &logsItem{
+			Data:  log,
+			Topic: topics,
+		})
 	}
 }
 

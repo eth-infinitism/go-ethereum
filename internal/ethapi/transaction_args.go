@@ -115,6 +115,9 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, skipGas
 	if err := args.setFeeDefaults(ctx, b); err != nil {
 		return err
 	}
+	if err := args.set7560Defaults(ctx, b); err != nil {
+		return err
+	}
 
 	if args.Value == nil {
 		args.Value = new(hexutil.Big)
@@ -192,6 +195,29 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, skipGas
 		args.ChainID = (*hexutil.Big)(want)
 	}
 	return nil
+}
+
+func (args *TransactionArgs) set7560Defaults(ctx context.Context, b Backend) error {
+	log.Error("set7560Defaults start")
+	// Not 7560 tx
+	if args.Sender == nil {
+		log.Error("set7560Defaults sender nil??")
+		return nil
+	}
+	log.Error("set7560Defaults sender not nil")
+	if args.Paymaster == nil {
+		log.Error("set7560Defaults setting default paymaster fields")
+		args.Paymaster = &common.Address{}
+		args.PaymasterData = &hexutil.Bytes{}
+	}
+	if args.Deployer == nil {
+		log.Error("set7560Defaults setting default deployer fields")
+		args.Deployer = &common.Address{}
+		args.DeployerData = &hexutil.Bytes{}
+	}
+	log.Error("set7560Defaults end")
+	return nil
+
 }
 
 // setFeeDefaults fills in default fee values for unspecified tx fields.
@@ -489,6 +515,7 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
+		log.Error("ToTransaction args", args)
 		aatx := types.Rip7560AccountAbstractionTx{
 			To:         &common.Address{},
 			ChainID:    (*big.Int)(args.ChainID),

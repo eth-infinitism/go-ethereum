@@ -149,9 +149,9 @@ type Rip7560Transaction struct {
 	MaxFeePerGas                *big.Int
 	MaxPriorityFeePerGas        *big.Int
 	BuilderFee                  *big.Int
-	Paymaster                   *common.Address
+	Paymaster                   common.Address
 	PaymasterData               []byte
-	Deployer                    *common.Address
+	Deployer                    common.Address
 	DeployerData                []byte
 	CallData                    []byte
 	Signature                   []byte
@@ -163,11 +163,14 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 		{Name: "nonce", Type: "uint256"},
 		{Name: "validationGasLimit", Type: "uint256"},
 		{Name: "paymasterValidationGasLimit", Type: "uint256"},
+		{Name: "postOpGasLimit", Type: "uint256"},
 		{Name: "callGasLimit", Type: "uint256"},
 		{Name: "maxFeePerGas", Type: "uint256"},
 		{Name: "maxPriorityFeePerGas", Type: "uint256"},
 		{Name: "builderFee", Type: "uint256"},
+		{Name: "paymaster", Type: "address"},
 		{Name: "paymasterData", Type: "bytes"},
+		{Name: "deployer", Type: "address"},
 		{Name: "deployerData", Type: "bytes"},
 		{Name: "callData", Type: "bytes"},
 		{Name: "signature", Type: "bytes"},
@@ -181,11 +184,14 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 		Nonce:                       big.NewInt(int64(tx.Nonce)),
 		ValidationGasLimit:          big.NewInt(int64(tx.ValidationGasLimit)),
 		PaymasterValidationGasLimit: big.NewInt(int64(tx.PaymasterValidationGasLimit)),
+		PostOpGasLimit:              big.NewInt(int64(tx.PostOpGas)),
 		CallGasLimit:                big.NewInt(int64(tx.Gas)),
 		MaxFeePerGas:                tx.GasFeeCap,
 		MaxPriorityFeePerGas:        tx.GasTipCap,
 		BuilderFee:                  tx.BuilderFee,
+		Paymaster:                   *tx.Paymaster,
 		PaymasterData:               tx.PaymasterData,
+		Deployer:                    *tx.Deployer,
 		DeployerData:                tx.DeployerData,
 		CallData:                    tx.Data,
 		Signature:                   tx.Signature,
