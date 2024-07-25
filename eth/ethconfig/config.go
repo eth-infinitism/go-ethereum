@@ -172,6 +172,9 @@ type Config struct {
 
 	// Rip7560PullUrls provides a list of bundlers the node will ask for new bundles for each block
 	Rip7560PullUrls []string
+
+	// Rip7560AcceptPush when set to "true" the node will accept incoming 'eth_sendRip7560TransactionsBundle'
+	Rip7560AcceptPush bool `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.
