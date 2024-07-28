@@ -190,6 +190,16 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 	args := abi.Arguments{
 		{Type: structThing, Name: "param_one"},
 	}
+
+	paymaster := tx.Paymaster
+	if paymaster == nil {
+		paymaster = &common.Address{}
+	}
+	deployer := tx.Deployer
+	if deployer == nil {
+		deployer = &common.Address{}
+	}
+
 	record := &Rip7560Transaction{
 		Sender:                      *tx.Sender,
 		Nonce:                       big.NewInt(int64(tx.Nonce)),
@@ -200,9 +210,9 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 		MaxFeePerGas:                tx.GasFeeCap,
 		MaxPriorityFeePerGas:        tx.GasTipCap,
 		BuilderFee:                  tx.BuilderFee,
-		Paymaster:                   *tx.Paymaster,
+		Paymaster:                   *paymaster,
 		PaymasterData:               tx.PaymasterData,
-		Deployer:                    *tx.Deployer,
+		Deployer:                    *deployer,
 		DeployerData:                tx.DeployerData,
 		CallData:                    tx.Data,
 		Signature:                   tx.Signature,
