@@ -147,13 +147,13 @@ func (b *rip7560ValidationTracer) OnEnter(depth int, typ byte, from common.Addre
 		b.createNewTopLevelFrame(to)
 	}
 	b.Calls = append(b.Calls, &callsItem{
-		Type:   vm.OpCode(typ).String(),
-		From:   from,
-		To:     to,
-		Method: input[0:10],
-		Value:  (*hexutil.Big)(value),
-		Gas:    gas,
-		Data:   input,
+		Type: vm.OpCode(typ).String(),
+		From: from,
+		To:   to,
+		//Method: input[0:10],
+		Value: (*hexutil.Big)(value),
+		Gas:   gas,
+		Data:  input,
 	})
 }
 
