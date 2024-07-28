@@ -2,17 +2,18 @@ package rip7560pool
 
 import (
 	"context"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 	"math/big"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -268,24 +269,25 @@ func (pool *Rip7560BundlerPool) GetRip7560BundleStatus(hash common.Hash) (*types
 	return pool.includedBundles[hash], nil
 }
 
-type echoResult struct {
-	String string
-	Int    int
-}
-
 type GetRip7560BundleArgs struct {
 	MinBaseFee    uint64
 	MaxBundleGas  uint64
 	MaxBundleSize uint64
 }
 
+type GetRip7560BundleResult struct {
+	Bundle []ethapi.TransactionArgs
+	Hello  string
+}
+
 func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceivedBundle {
 	currentHead := pool.currentHead.Load()
+	var chosenBundle []ethapi.TransactionArgs = make([]ethapi.TransactionArgs, 0)
 	for _, url := range pool.config.PullUrls {
 		client := rpc.WithHTTPClient(&http.Client{Timeout: 500 * time.Millisecond})
 		cl, err := rpc.DialOptions(context.Background(), url, client)
 		if err != nil {
-			os.Exit(666)
+			log.Warn(fmt.Sprintf("Failed to dial RIP-7560 bundler URL (%s): %v", url, err))
 		}
 		maxBundleGas := min(*pool.config.MaxBundleGas, currentHead.GasLimit)
 		args := &GetRip7560BundleArgs{
@@ -293,15 +295,27 @@ func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceiv
 			MaxBundleGas:  maxBundleGas,
 			MaxBundleSize: *pool.config.MaxBundleSize,
 		}
-		result := &echoResult{}
-		err = cl.Call(result, "eth_getRip7560Bundle", &echoResult{String: "THIS IS A REQUEST!"}, args)
+		result := &GetRip7560BundleResult{
+			Bundle: make([]ethapi.TransactionArgs, 0),
+		}
+		err = cl.Call(result, "eth_getRip7560Bundle", args)
 		if err != nil {
-			os.Exit(666)
+			log.Warn(fmt.Sprintf("Failed to fetch RIP-7560 bundle from URL (%s): %v", url, err))
 		}
 		println("fetchBundleFromBundler returned")
+		println(len(result.Bundle))
+		chosenBundle = result.Bundle
 	}
+	txs := make([]*types.Transaction, len(chosenBundle))
+	for i := 0; i < len(chosenBundle); i++ {
+		txs[i] = chosenBundle[i].ToTransaction()
+	}
+	bundleHash := ethapi.CalculateBundleHash(txs)
 	return &types.ExternallyReceivedBundle{
-		BundlerId: "result.String",
+		BundlerId:     "result.String",
+		BundleHash:    bundleHash,
+		ValidForBlock: big.NewInt(0),
+		Transactions:  txs,
 	}
 }
 
