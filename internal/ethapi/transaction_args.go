@@ -515,7 +515,6 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		log.Error("ToTransaction args", args)
 		aatx := types.Rip7560AccountAbstractionTx{
 			To:         &common.Address{},
 			ChainID:    (*big.Int)(args.ChainID),

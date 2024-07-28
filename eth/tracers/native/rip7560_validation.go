@@ -90,6 +90,7 @@ func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Trace
 			OnTxStart: t.OnTxStart,
 			OnTxEnd:   t.OnTxEnd,
 			OnOpcode:  t.OnOpcode,
+			OnExit:    t.OnExit,
 		},
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
@@ -145,6 +146,27 @@ func (b *rip7560ValidationTracer) OnEnter(depth int, typ byte, from common.Addre
 	if depth == 0 {
 		b.createNewTopLevelFrame(to)
 	}
+	b.Calls = append(b.Calls, &callsItem{
+		Type:   vm.OpCode(typ).String(),
+		From:   from,
+		To:     to,
+		Method: input[0:10],
+		Value:  (*hexutil.Big)(value),
+		Gas:    gas,
+		Data:   input,
+	})
+}
+
+func (b *rip7560ValidationTracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	typ := "RETURN"
+	if err != nil {
+		typ = "REVERT"
+	}
+	b.Calls = append(b.Calls, &callsItem{
+		Type:    typ,
+		GasUsed: gasUsed,
+		Data:    output,
+	})
 }
 
 func (b *rip7560ValidationTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
