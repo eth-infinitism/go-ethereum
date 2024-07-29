@@ -298,7 +298,7 @@ func (b *rip7560ValidationTracer) OnOpcode(pc uint64, op byte, gas, cost uint64,
 			if !rOk && !wOk {
 				access.Reads[slotHex] = b.env.StateDB.GetState(addr, slot).Hex()
 			}
-		} else if opcode == "STORE" {
+		} else if opcode == "SSTORE" {
 			b.incrementCount(access.Writes, slotHex)
 		} else if opcode == "TLOAD" {
 			b.incrementCount(access.TransientReads, slotHex)
