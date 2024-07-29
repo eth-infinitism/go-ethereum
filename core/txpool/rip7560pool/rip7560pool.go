@@ -276,13 +276,13 @@ type GetRip7560BundleArgs struct {
 }
 
 type GetRip7560BundleResult struct {
-	Bundle []ethapi.TransactionArgs
-	Hello  string
+	Bundle        []ethapi.TransactionArgs
+	ValidForBlock *big.Int
 }
 
 func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceivedBundle {
 	currentHead := pool.currentHead.Load()
-	var chosenBundle []ethapi.TransactionArgs = make([]ethapi.TransactionArgs, 0)
+	chosenBundle := make([]ethapi.TransactionArgs, 0)
 	for _, url := range pool.config.PullUrls {
 		client := rpc.WithHTTPClient(&http.Client{Timeout: 500 * time.Millisecond})
 		cl, err := rpc.DialOptions(context.Background(), url, client)
