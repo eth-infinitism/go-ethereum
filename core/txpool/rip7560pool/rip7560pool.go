@@ -2,6 +2,7 @@ package rip7560pool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -195,8 +196,13 @@ func (pool *Rip7560BundlerPool) PendingRip7560Bundle() (*types.ExternallyReceive
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	bundle := pool.fetchBundleFromBundler()
-	//bundle := pool.selectExternalBundle()
+	bundle, err := pool.fetchBundleFromBundler()
+	if bundle == nil {
+		bundle = pool.selectExternalBundle()
+	}
+	if bundle == nil && err != nil {
+		return nil, err
+	}
 	return bundle, nil
 }
 
@@ -280,9 +286,13 @@ type GetRip7560BundleResult struct {
 	ValidForBlock *big.Int
 }
 
-func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceivedBundle {
+func (pool *Rip7560BundlerPool) fetchBundleFromBundler() (*types.ExternallyReceivedBundle, error) {
+	if len(pool.config.PullUrls) == 0 {
+		return nil, nil
+	}
 	currentHead := pool.currentHead.Load()
 	chosenBundle := make([]ethapi.TransactionArgs, 0)
+	pullErrors := make([]error, 0)
 	for _, url := range pool.config.PullUrls {
 		client := rpc.WithHTTPClient(&http.Client{Timeout: 500 * time.Millisecond})
 		cl, err := rpc.DialOptions(context.Background(), url, client)
@@ -301,10 +311,13 @@ func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceiv
 		err = cl.Call(result, "eth_getRip7560Bundle", args)
 		if err != nil {
 			log.Warn(fmt.Sprintf("Failed to fetch RIP-7560 bundle from URL (%s): %v", url, err))
+			pullErrors = append(pullErrors, err)
+			continue
 		}
-		println("fetchBundleFromBundler returned")
-		println(len(result.Bundle))
 		chosenBundle = result.Bundle
+	}
+	if len(pullErrors) == len(pool.config.PullUrls) {
+		return nil, errors.New("failed to fetch a new RIP-7560 bundle from any bundler")
 	}
 	txs := make([]*types.Transaction, len(chosenBundle))
 	for i := 0; i < len(chosenBundle); i++ {
@@ -316,7 +329,7 @@ func (pool *Rip7560BundlerPool) fetchBundleFromBundler() *types.ExternallyReceiv
 		BundleHash:    bundleHash,
 		ValidForBlock: big.NewInt(0),
 		Transactions:  txs,
-	}
+	}, nil
 }
 
 // return first bundle
