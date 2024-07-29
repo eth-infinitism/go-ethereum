@@ -198,13 +198,10 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, skipGas
 }
 
 func (args *TransactionArgs) set7560Defaults(ctx context.Context, b Backend) error {
-	log.Error("set7560Defaults start")
 	// Not 7560 tx
 	if args.Sender == nil {
-		log.Error("set7560Defaults sender nil??")
 		return nil
 	}
-	log.Error("set7560Defaults sender not nil")
 	if args.Paymaster == nil {
 		log.Error("set7560Defaults setting default paymaster fields")
 		args.Paymaster = &common.Address{}
@@ -215,7 +212,6 @@ func (args *TransactionArgs) set7560Defaults(ctx context.Context, b Backend) err
 		args.Deployer = &common.Address{}
 		args.DeployerData = &hexutil.Bytes{}
 	}
-	log.Error("set7560Defaults end")
 	return nil
 
 }
