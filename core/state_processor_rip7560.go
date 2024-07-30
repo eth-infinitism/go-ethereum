@@ -119,6 +119,8 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		statedb.Finalise(true)
+
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
@@ -211,7 +213,6 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		if err != nil {
 			return nil, fmt.Errorf("account deployment failed: %v", err)
 		}
-		statedb.IntermediateRoot(true)
 	} else {
 		statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
 	}
@@ -224,7 +225,6 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	if err != nil {
 		return nil, err
 	}
-	statedb.IntermediateRoot(true)
 	if resultAccountValidation.Err != nil {
 		return nil, resultAccountValidation.Err
 	}
@@ -253,6 +253,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		PmValidAfter:        pmValidAfter,
 		PmValidUntil:        pmValidUntil,
 	}
+	statedb.Finalise(true)
 
 	return vpr, nil
 }
@@ -275,7 +276,6 @@ func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.Ch
 		if resultPm.Failed() {
 			return nil, 0, 0, 0, resultPm.Err
 		}
-		statedb.IntermediateRoot(true)
 		if resultPm.Failed() {
 			return nil, 0, 0, 0, errors.New("paymaster validation failed - invalid transaction")
 		}
@@ -321,36 +321,42 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	if err != nil {
 		return nil, err
 	}
-	root := statedb.IntermediateRoot(true).Bytes()
 	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
 		paymasterPostOpResult, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp, statedb, header)
-		root = statedb.IntermediateRoot(true).Bytes()
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	cumulativeGasUsed :=
+	gasUsed :=
 		vpr.ValidationUsedGas +
 			vpr.DeploymentUsedGas +
 			vpr.PmValidationUsedGas +
 			executionResult.UsedGas
 	if paymasterPostOpResult != nil {
-		cumulativeGasUsed +=
+		gasUsed +=
 			paymasterPostOpResult.UsedGas
 	}
 
-	receipt := &types.Receipt{Type: vpr.Tx.Type(), PostState: root, CumulativeGasUsed: cumulativeGasUsed}
-
-	// Set the receipt logs and create the bloom filter.
-	receipt.Logs = statedb.GetLogs(vpr.Tx.Hash(), header.Number.Uint64(), header.Hash())
+	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed}
 
 	if executionResult.Failed() || (paymasterPostOpResult != nil && paymasterPostOpResult.Failed()) {
 		receipt.Status = types.ReceiptStatusFailed
 	} else {
 		receipt.Status = types.ReceiptStatusSuccessful
 	}
+
+	// Set the receipt logs and create the bloom filter.
+	blockNumber := header.Number
+	// TODO: UNOPTIMIZED: it re-calculates the header hash. need to pass it down from "Process"
+	blockHash := header.Hash()
+	receipt.Logs = statedb.GetLogs(vpr.TxHash, blockNumber.Uint64(), blockHash)
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+	receipt.BlockHash = blockHash
+	receipt.BlockNumber = blockNumber
+	receipt.TransactionIndex = uint(vpr.TxIndex)
+
 	return receipt, err
 }
 
