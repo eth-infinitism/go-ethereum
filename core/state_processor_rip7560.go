@@ -378,9 +378,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 	// Set the receipt logs and create the bloom filter.
 	blockNumber := header.Number
-	// TODO: UNOPTIMIZED: it re-calculates the header hash. need to pass it down from "Process"
-	blockHash := header.Hash()
-	receipt.Logs = statedb.GetLogs(vpr.TxHash, blockNumber.Uint64(), blockHash)
+	receipt.Logs = statedb.GetLogs(vpr.TxHash, blockNumber.Uint64(), common.Hash{})
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
