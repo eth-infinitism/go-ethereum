@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
@@ -283,7 +284,7 @@ type GetRip7560BundleArgs struct {
 
 type GetRip7560BundleResult struct {
 	Bundle        []ethapi.TransactionArgs
-	ValidForBlock *big.Int
+	ValidForBlock *hexutil.Big
 }
 
 func (pool *Rip7560BundlerPool) fetchBundleFromBundler() (*types.ExternallyReceivedBundle, error) {
