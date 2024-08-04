@@ -197,14 +197,11 @@ func (pool *Rip7560BundlerPool) PendingRip7560Bundle() (*types.ExternallyReceive
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	bundle, err := pool.fetchBundleFromBundler()
-	if bundle == nil {
-		bundle = pool.selectExternalBundle()
+	bundle := pool.selectExternalBundle()
+	if bundle != nil {
+		return bundle, nil
 	}
-	if bundle == nil && err != nil {
-		return nil, err
-	}
-	return bundle, nil
+	return pool.fetchBundleFromBundler()
 }
 
 // SubscribeTransactions is not needed for the External Bundler AA sub pool and 'ch' will never be sent anything.
@@ -309,20 +306,21 @@ func (pool *Rip7560BundlerPool) fetchBundleFromBundler() (*types.ExternallyRecei
 		result := &GetRip7560BundleResult{
 			Bundle: make([]ethapi.TransactionArgs, 0),
 		}
-		err = cl.Call(result, "eth_getRip7560Bundle", args)
+		err = cl.Call(result, "aa_getRip7560Bundle", args)
 		if err != nil {
 			log.Warn(fmt.Sprintf("Failed to fetch RIP-7560 bundle from URL (%s): %v", url, err))
 			pullErrors = append(pullErrors, err)
 			continue
 		}
 		chosenBundle = result.Bundle
+		break
 	}
 	if len(pullErrors) == len(pool.config.PullUrls) {
 		return nil, errors.New("failed to fetch a new RIP-7560 bundle from any bundler")
 	}
 	txs := make([]*types.Transaction, len(chosenBundle))
-	for i := 0; i < len(chosenBundle); i++ {
-		txs[i] = chosenBundle[i].ToTransaction()
+	for i, tx := range chosenBundle {
+		txs[i] = tx.ToTransaction()
 	}
 	bundleHash := ethapi.CalculateBundleHash(txs)
 	return &types.ExternallyReceivedBundle{
