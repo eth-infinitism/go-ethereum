@@ -239,6 +239,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		}
 		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
+		if statedb.GetCodeSize(*sender) == 0 {
+			return nil, fmt.Errorf("account is not deployed and no factory is specified, account:%s", sender.String())
+		}
 		statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
 	}
 
