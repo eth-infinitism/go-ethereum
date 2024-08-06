@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -227,16 +228,16 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		} else {
 			resultDeployer, err = ApplyMessage(evm, deployerMsg, gp)
 		}
-		if err == nil && resultDeployer != nil {
-			err = resultDeployer.Err
-			deploymentUsedGas = resultDeployer.UsedGas
-		}
-		if err == nil && statedb.GetCodeSize(*sender) == 0 {
-			err = errors.New("sender not deployed")
-		}
 		if err != nil {
 			return nil, fmt.Errorf("account deployment failed: %v", err)
 		}
+		if resultDeployer.Failed() {
+			return nil, revertedValidationError("factory", resultDeployer)
+		}
+		if statedb.GetCodeSize(*sender) == 0 {
+			return nil, fmt.Errorf("account was not deployed by a factory, account:%s factory%s", sender.String(), deployerMsg.To.String())
+		}
+		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
 		statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
 	}
@@ -249,8 +250,8 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	if err != nil {
 		return nil, err
 	}
-	if resultAccountValidation.Err != nil {
-		return nil, resultAccountValidation.Err
+	if resultAccountValidation.Failed() {
+		return nil, revertedValidationError("sender", resultAccountValidation)
 	}
 	validAfter, validUntil, err := validateAccountReturnData(resultAccountValidation.ReturnData)
 	if err != nil {
@@ -301,7 +302,7 @@ func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.Ch
 			return nil, 0, 0, 0, err
 		}
 		if resultPm.Failed() {
-			return nil, 0, 0, 0, resultPm.Err
+			return nil, 0, 0, 0, revertedValidationError("paymaster", resultPm)
 		}
 		if resultPm.Failed() {
 			return nil, 0, 0, 0, errors.New("paymaster validation failed - invalid transaction")
@@ -556,4 +557,9 @@ func validateValidityTimeRange(time uint64, validAfter uint64, validUntil uint64
 		return errors.New("RIP-7560 transaction validity not reached yet")
 	}
 	return nil
+}
+
+func revertedValidationError(entity string, res *ExecutionResult) error {
+	errStr := "0x" + hex.EncodeToString(res.ReturnData)
+	return errors.New(fmt.Sprintf("RIP-7560 validation failed in the \"%s\" contract with error:%s:%s", entity, res.Err, errStr))
 }
