@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -14,6 +16,35 @@ import (
 	"math/big"
 	"time"
 )
+
+//  note: revertError code is copied here from the 'ethapi' package
+
+// revertError is an API error that encompasses an EVM revert with JSON error
+// code and a binary data blob.
+type validationRevertError struct {
+	error
+	reason string // revert reason hex encoded
+}
+
+func (v *validationRevertError) ErrorData() interface{} {
+	return v.reason
+}
+
+// newValidationRevertError creates a revertError instance with the provided revert data.
+func newValidationRevertError(vpr *core.ValidationPhaseResult) *validationRevertError {
+	errorMessage := fmt.Sprintf("validation phase reverted in contract %s", vpr.RevertEntityName)
+	// TODO: use "vm.ErrorX" for RIP-7560 specific errors as well!
+	err := errors.New(errorMessage)
+
+	reason, errUnpack := abi.UnpackRevert(vpr.RevertReason)
+	if errUnpack == nil {
+		err = fmt.Errorf("%w: %v", err, reason)
+	}
+	return &validationRevertError{
+		error:  err,
+		reason: hexutil.Encode(vpr.RevertReason),
+	}
+}
 
 // Rip7560API is the collection of tracing APIs exposed over the private debugging endpoint.
 type Rip7560API struct {
@@ -55,9 +86,12 @@ func (api *Rip7560API) TraceRip7560Validation(
 	if config != nil {
 		traceConfig = &config.TraceConfig
 	}
-	traceResult, err := api.traceTx(ctx, tx, new(Context), block, vmctx, statedb, traceConfig)
+	traceResult, vpr, err := api.traceTx(ctx, tx, new(Context), block, vmctx, statedb, traceConfig)
 	if err != nil {
 		return nil, err
+	}
+	if vpr != nil && vpr.RevertReason != nil {
+		return nil, newValidationRevertError(vpr)
 	}
 	return traceResult, err
 }
@@ -83,7 +117,7 @@ func (api *Rip7560API) chainContext(ctx context.Context) core.ChainContext {
 	return ethapi.NewChainContext(ctx, api.backend)
 }
 
-func (api *Rip7560API) traceTx(ctx context.Context, tx *types.Transaction, txctx *Context, block *types.Block, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig) (interface{}, error) {
+func (api *Rip7560API) traceTx(ctx context.Context, tx *types.Transaction, txctx *Context, block *types.Block, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig) (interface{}, *core.ValidationPhaseResult, error) {
 	var (
 		tracer  *Tracer
 		err     error
@@ -113,7 +147,7 @@ func (api *Rip7560API) traceTx(ctx context.Context, tx *types.Transaction, txctx
 	// Define a meaningful timeout of a single transaction trace
 	if config.Timeout != nil {
 		if timeout, err = time.ParseDuration(*config.Timeout); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -133,13 +167,14 @@ func (api *Rip7560API) traceTx(ctx context.Context, tx *types.Transaction, txctx
 
 	// TODO: this is added to allow our bundler checking the 'TraceValidation' API is supported on Geth
 	if tx.Rip7560TransactionData().Sender.Cmp(common.HexToAddress("0x0000000000000000000000000000000000000000")) == 0 {
-		return tracer.GetResult()
+		result, err := tracer.GetResult()
+		return result, nil, err
 	}
 
-	_, err = core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
-	//_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.GasLimit), statedb, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, vmenv)
+	vpr, err := core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
 	if err != nil {
-		return nil, fmt.Errorf("tracing failed: %w", err)
+		return nil, nil, fmt.Errorf("tracing failed: %w", err)
 	}
-	return tracer.GetResult()
+	result, err := tracer.GetResult()
+	return result, vpr, err
 }

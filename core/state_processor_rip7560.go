@@ -1,7 +1,6 @@
 package core
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -72,6 +71,8 @@ type ValidationPhaseResult struct {
 	SenderValidUntil    uint64
 	PmValidAfter        uint64
 	PmValidUntil        uint64
+	RevertReason        []byte
+	RevertEntityName    string
 }
 
 // HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
@@ -232,7 +233,10 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 			return nil, fmt.Errorf("account deployment failed: %v", err)
 		}
 		if resultDeployer.Failed() {
-			return nil, revertedValidationError("factory", resultDeployer)
+			return &ValidationPhaseResult{
+				RevertEntityName: "deployer",
+				RevertReason:     resultDeployer.ReturnData,
+			}, nil
 		}
 		if statedb.GetCodeSize(*sender) == 0 {
 			return nil, fmt.Errorf("account was not deployed by a factory, account:%s factory%s", sender.String(), deployerMsg.To.String())
@@ -254,7 +258,10 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		return nil, err
 	}
 	if resultAccountValidation.Failed() {
-		return nil, revertedValidationError("sender", resultAccountValidation)
+		return &ValidationPhaseResult{
+			RevertEntityName: "account",
+			RevertReason:     resultAccountValidation.ReturnData,
+		}, nil
 	}
 	validAfter, validUntil, err := validateAccountReturnData(resultAccountValidation.ReturnData)
 	if err != nil {
@@ -265,9 +272,15 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		return nil, err
 	}
 
-	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(tx, chainConfig, signingHash, evm, gp, statedb, header)
+	paymasterContext, paymasterRevertReason, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(tx, chainConfig, signingHash, evm, gp, statedb, header)
 	if err != nil {
 		return nil, err
+	}
+	if paymasterRevertReason != nil {
+		return &ValidationPhaseResult{
+			RevertEntityName: "paymaster",
+			RevertReason:     paymasterRevertReason,
+		}, nil
 	}
 
 	vpr := &ValidationPhaseResult{
@@ -289,7 +302,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	return vpr, nil
 }
 
-func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
+func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) ([]byte, []byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	var pmValidationUsedGas uint64
 	var paymasterContext []byte
@@ -297,30 +310,27 @@ func applyPaymasterValidationFrame(tx *types.Transaction, chainConfig *params.Ch
 	var pmValidUntil uint64
 	paymasterMsg, err := preparePaymasterValidationMessage(tx, chainConfig, signingHash)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, nil, 0, 0, 0, err
 	}
 	if paymasterMsg != nil {
 		resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
 		if err != nil {
-			return nil, 0, 0, 0, err
+			return nil, nil, 0, 0, 0, err
 		}
 		if resultPm.Failed() {
-			return nil, 0, 0, 0, revertedValidationError("paymaster", resultPm)
-		}
-		if resultPm.Failed() {
-			return nil, 0, 0, 0, errors.New("paymaster validation failed - invalid transaction")
+			return nil, resultPm.ReturnData, 0, 0, 0, nil
 		}
 		pmValidationUsedGas = resultPm.UsedGas
 		paymasterContext, pmValidAfter, pmValidUntil, err = validatePaymasterReturnData(resultPm.ReturnData)
 		if err != nil {
-			return nil, 0, 0, 0, err
+			return nil, nil, 0, 0, 0, err
 		}
 		err = validateValidityTimeRange(header.Time, pmValidAfter, pmValidUntil)
 		if err != nil {
-			return nil, 0, 0, 0, err
+			return nil, nil, 0, 0, 0, err
 		}
 	}
-	return paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, nil
+	return paymasterContext, nil, pmValidationUsedGas, pmValidAfter, pmValidUntil, nil
 }
 
 func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) (*ExecutionResult, error) {
@@ -560,9 +570,4 @@ func validateValidityTimeRange(time uint64, validAfter uint64, validUntil uint64
 		return errors.New("RIP-7560 transaction validity not reached yet")
 	}
 	return nil
-}
-
-func revertedValidationError(entity string, res *ExecutionResult) error {
-	errStr := "0x" + hex.EncodeToString(res.ReturnData)
-	return errors.New(fmt.Sprintf("RIP-7560 validation failed in the \"%s\" contract with error:%s:%s", entity, res.Err, errStr))
 }
