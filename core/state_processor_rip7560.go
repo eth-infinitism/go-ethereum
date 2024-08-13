@@ -19,6 +19,7 @@ var AA_SENDER_CREATOR = common.HexToAddress("0x00000000000000000000000000000000f
 type EntryPointCall struct {
 	OnEnterSuper tracing.EnterHook
 	Input        []byte
+	From         common.Address
 	err          error
 }
 
@@ -241,7 +242,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 			RevertReason:     resultAccountValidation.ReturnData,
 		}, nil
 	}
-	aad, err := validateAccountEntryPointCall(epc)
+	aad, err := validateAccountEntryPointCall(epc, aatx.Sender)
 	if err != nil {
 		return nil, err
 	}
@@ -249,6 +250,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	// clear the EntryPoint calls array after parsing
 	epc.err = nil
 	epc.Input = nil
+	epc.From = common.Address{}
 
 	err = validateValidityTimeRange(header.Time, aad.ValidAfter.Uint64(), aad.ValidUntil.Uint64())
 	if err != nil {
@@ -286,6 +288,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 
 func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) ([]byte, []byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
+	aatx := tx.Rip7560TransactionData()
 	var pmValidationUsedGas uint64
 	paymasterMsg, err := preparePaymasterValidationMessage(tx, chainConfig, signingHash)
 	if paymasterMsg == nil || err != nil {
@@ -299,7 +302,7 @@ func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, c
 		return nil, resultPm.ReturnData, 0, 0, 0, nil
 	}
 	pmValidationUsedGas = resultPm.UsedGas
-	apd, err := validatePaymasterEntryPointCall(epc)
+	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster)
 	if err != nil {
 		return nil, nil, 0, 0, 0, err
 	}
@@ -482,7 +485,7 @@ func preparePostOpMessage(vpr *ValidationPhaseResult, chainConfig *params.ChainC
 	}, nil
 }
 
-func validateAccountEntryPointCall(epc *EntryPointCall) (*AcceptAccountData, error) {
+func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) (*AcceptAccountData, error) {
 	if epc.err != nil {
 		return nil, epc.err
 	}
@@ -492,10 +495,13 @@ func validateAccountEntryPointCall(epc *EntryPointCall) (*AcceptAccountData, err
 	if len(epc.Input) != 68 {
 		return nil, errors.New("invalid account return data length")
 	}
+	if epc.From.Cmp(*sender) != 0 {
+		return nil, errors.New("invalid call to EntryPoint contract from a wrong account address")
+	}
 	return abiDecodeAcceptAccount(epc.Input)
 }
 
-func validatePaymasterEntryPointCall(epc *EntryPointCall) (*AcceptPaymasterData, error) {
+func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Address) (*AcceptPaymasterData, error) {
 	if epc.err != nil {
 		return nil, epc.err
 	}
@@ -505,6 +511,9 @@ func validatePaymasterEntryPointCall(epc *EntryPointCall) (*AcceptPaymasterData,
 
 	if len(epc.Input) < 100 {
 		return nil, errors.New("invalid paymaster callback data length")
+	}
+	if epc.From.Cmp(*paymaster) != 0 {
+		return nil, errors.New("invalid call to EntryPoint contract from a wrong paymaster address")
 	}
 	apd, err := abiDecodeAcceptPaymaster(epc.Input)
 	if err != nil {
@@ -538,17 +547,12 @@ func (epc *EntryPointCall) OnEnter(depth int, typ byte, from common.Address, to 
 		return
 	}
 
-	if depth != 1 {
-		println("ONENTER WITH WRONG DEPTH!")
-		epc.err = errors.New("same")
-		return
-	}
 	if epc.Input != nil {
-		println("repeated call to ep callback")
-		epc.err = errors.New("same")
+		epc.err = errors.New("illegal repeated call to the EntryPoint callback")
 		return
 	}
 
 	epc.Input = make([]byte, len(input))
 	copy(epc.Input, input)
+	epc.From = from
 }
