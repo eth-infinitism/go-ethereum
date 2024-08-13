@@ -296,9 +296,6 @@ func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, c
 		return nil, nil, 0, 0, 0, err
 	}
 	if resultPm.Failed() {
-		return nil, nil, 0, 0, 0, resultPm.Err
-	}
-	if resultPm.Failed() {
 		return nil, resultPm.ReturnData, 0, 0, 0, nil
 	}
 	pmValidationUsedGas = resultPm.UsedGas

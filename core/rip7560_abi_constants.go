@@ -23,8 +23,8 @@ const ValidatePaymasterTransactionAbi = `
 [
 	{
 		"type":"function",
-		"name":"validatePaymasterTransaction","
-		inputs": [
+		"name":"validatePaymasterTransaction",
+		"inputs": [
 			{"name": "version","type": "uint256"},
 			{"name": "txHash","type": "bytes32"},
 			{"name": "transaction","type": "bytes"}
