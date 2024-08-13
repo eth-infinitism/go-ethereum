@@ -36,6 +36,8 @@ type ValidationPhaseResult struct {
 	SenderValidUntil    uint64
 	PmValidAfter        uint64
 	PmValidUntil        uint64
+	RevertReason        []byte
+	RevertEntityName    string
 }
 
 // HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
@@ -205,17 +207,23 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		} else {
 			resultDeployer, err = ApplyMessage(evm, deployerMsg, gp)
 		}
-		if err == nil && resultDeployer != nil {
-			err = resultDeployer.Err
-			deploymentUsedGas = resultDeployer.UsedGas
-		}
-		if err == nil && statedb.GetCodeSize(*sender) == 0 {
-			err = errors.New("sender not deployed")
-		}
 		if err != nil {
 			return nil, fmt.Errorf("account deployment failed: %v", err)
 		}
+		if resultDeployer.Failed() {
+			return &ValidationPhaseResult{
+				RevertEntityName: "deployer",
+				RevertReason:     resultDeployer.ReturnData,
+			}, nil
+		}
+		if statedb.GetCodeSize(*sender) == 0 {
+			return nil, fmt.Errorf("account was not deployed by a factory, account:%s factory%s", sender.String(), deployerMsg.To.String())
+		}
+		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
+		if statedb.GetCodeSize(*sender) == 0 {
+			return nil, fmt.Errorf("account is not deployed and no factory is specified, account:%s", sender.String())
+		}
 		statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
 	}
 
@@ -227,8 +235,11 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	if err != nil {
 		return nil, err
 	}
-	if resultAccountValidation.Err != nil {
-		return nil, resultAccountValidation.Err
+	if resultAccountValidation.Failed() {
+		return &ValidationPhaseResult{
+			RevertEntityName: "account",
+			RevertReason:     resultAccountValidation.ReturnData,
+		}, nil
 	}
 	aad, err := validateAccountEntryPointCall(epc)
 	if err != nil {
@@ -245,9 +256,15 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	}
 
 	vpr := &ValidationPhaseResult{}
-	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(epc, tx, chainConfig, signingHash, evm, gp, statedb, header)
+	paymasterContext, paymasterRevertReason, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(epc, tx, chainConfig, signingHash, evm, gp, statedb, header)
 	if err != nil {
 		return nil, err
+	}
+	if paymasterRevertReason != nil {
+		return &ValidationPhaseResult{
+			RevertEntityName: "paymaster",
+			RevertReason:     paymasterRevertReason,
+		}, nil
 	}
 
 	vpr.Tx = tx
@@ -267,33 +284,33 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	return vpr, nil
 }
 
-func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
+func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) ([]byte, []byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	var pmValidationUsedGas uint64
 	paymasterMsg, err := preparePaymasterValidationMessage(tx, chainConfig, signingHash)
 	if paymasterMsg == nil || err != nil {
-		return nil, 0, 0, 0, err
+		return nil, nil, 0, 0, 0, err
 	}
 	resultPm, err := ApplyMessage(evm, paymasterMsg, gp)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, nil, 0, 0, 0, err
 	}
 	if resultPm.Failed() {
-		return nil, 0, 0, 0, resultPm.Err
+		return nil, nil, 0, 0, 0, resultPm.Err
 	}
 	if resultPm.Failed() {
-		return nil, 0, 0, 0, errors.New("paymaster validation failed - invalid transaction")
+		return nil, resultPm.ReturnData, 0, 0, 0, nil
 	}
 	pmValidationUsedGas = resultPm.UsedGas
 	apd, err := validatePaymasterEntryPointCall(epc)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, nil, 0, 0, 0, err
 	}
 	err = validateValidityTimeRange(header.Time, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64())
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, nil, 0, 0, 0, err
 	}
-	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
+	return apd.Context, nil, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
 
 func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) (*ExecutionResult, error) {
