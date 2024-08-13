@@ -185,7 +185,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	} else {
 		// keep the original tracer's OnEnter hook
 		epc.OnEnterSuper = evm.Config.Tracer.OnEnter
-		evm.Config.Tracer.OnEnter = epc.OnEnter
+		newTracer := *evm.Config.Tracer
+		newTracer.OnEnter = epc.OnEnter
+		evm.Config.Tracer = &newTracer
 	}
 
 	if evm.Config.Tracer.OnTxStart != nil {
