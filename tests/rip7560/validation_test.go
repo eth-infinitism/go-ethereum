@@ -14,13 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func TestPackValidationData(t *testing.T) {
-	// --------------- after 6bytes     before 6 bytes   magic 20 bytes
-	validationData := "000000000002" + "000000000001" + "0000000000000000000000000000000000001234"
-	packed, _ := new(big.Int).SetString(validationData, 16)
-	assert.Equal(t, packed.Text(16), new(big.Int).SetBytes(core.PackValidationData(0x1234, 1, 2)).Text(16))
-}
-
 // func TestUnpackValidationData(t *testing.T) {
 // 	packed := core.PackValidationData(0xdead, 0xcafe, 0xface)
 // 	magic, until, after := core.UnpackValidationData(packed)
@@ -44,8 +37,8 @@ func TestValidationFailure_no_balance(t *testing.T) {
 }
 
 func TestValidationFailure_sigerror(t *testing.T) {
-	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER, returnWithData(core.PackValidationData(core.SigFailAccountMethodSig, 0, 0)), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER, returnWithData([]byte{}), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
 	}, "account signature error")
 }
@@ -53,8 +46,8 @@ func TestValidationFailure_sigerror(t *testing.T) {
 func TestValidationFailure_validAfter(t *testing.T) {
 
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
-		returnWithData(core.PackValidationData(core.AcceptAccountMethodSig, 300, 200)), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		createAccountCodeWithRange(200, 300), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
 	}, "RIP-7560 transaction validity not reached yet")
 }
@@ -62,8 +55,8 @@ func TestValidationFailure_validAfter(t *testing.T) {
 func TestValidationFailure_validUntil(t *testing.T) {
 
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
-		returnWithData(core.PackValidationData(core.AcceptAccountMethodSig, 1, 0)), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		createAccountCodeWithRange(0, 1), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
 	}, "RIP-7560 transaction validity expired")
 }
@@ -71,7 +64,7 @@ func TestValidationFailure_validUntil(t *testing.T) {
 func TestValidation_ok(t *testing.T) {
 
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER, createAccountCode(), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
 	}, "ok")
 }
@@ -79,7 +72,7 @@ func TestValidation_ok(t *testing.T) {
 func TestValidation_ok_paid(t *testing.T) {
 
 	aatx := types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
 	}
 	tb := newTestContextBuilder(t).withCode(DEFAULT_SENDER, createAccountCode(), DEFAULT_BALANCE)
@@ -92,7 +85,7 @@ func TestValidation_ok_paid(t *testing.T) {
 func TestValidationFailure_account_nonce(t *testing.T) {
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER, createAccountCode(), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
 		Nonce:              1234,
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
 	}, "nonce too high: address 0x1111111111222222222233333333334444444444, tx: 1234 state: 0")
 }
@@ -100,45 +93,37 @@ func TestValidationFailure_account_nonce(t *testing.T) {
 func TestValidationFailure_account_revert(t *testing.T) {
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
 		createCode(vm.PUSH0, vm.DUP1, vm.REVERT), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
-	}, "execution reverted")
+	}, "validation phase reverted in contract account")
 }
 
 func TestValidationFailure_account_revert_with_reason(t *testing.T) {
-	// cast abi-encode 'Error(string)' hello
-	reason := hexutils.HexToBytes("0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000")
+	// cast calldata  'Error(string)' hello
+	reason := hexutils.HexToBytes("08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000")
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
 		revertWithData(reason), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
-	}, "execution reverted")
-}
-
-func TestValidationFailure_account_wrong_return_length(t *testing.T) {
-	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
-		returnWithData([]byte{1, 2, 3}), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
-		GasFeeCap:          big.NewInt(1000000000),
-	}, "invalid account return data length")
+	}, "validation phase reverted in contract account: hello")
 }
 
 func TestValidationFailure_account_no_return_value(t *testing.T) {
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
 		returnWithData([]byte{}), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
-	}, "invalid account return data length")
+	}, "account validation did not call the EntryPoint 'acceptAccount' callback")
 }
 
-func TestValidationFailure_account_wrong_return_value(t *testing.T) {
+func TestValidationFailure_account_no_callback(t *testing.T) {
 	// create buffer of 32 byte array
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
 		returnWithData(make([]byte, 32)),
 		DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
-		ValidationGasLimit: uint64(1000000000),
+		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
-	}, "account did not return correct MAGIC_VALUE")
+	}, "account validation did not call the EntryPoint 'acceptAccount' callback")
 }
 
 func handleTransaction(tb *testContextBuilder, aatx types.Rip7560AccountAbstractionTx, expectedErr string) {

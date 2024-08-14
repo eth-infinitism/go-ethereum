@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -16,35 +14,6 @@ import (
 	"math/big"
 	"time"
 )
-
-//  note: revertError code is copied here from the 'ethapi' package
-
-// revertError is an API error that encompasses an EVM revert with JSON error
-// code and a binary data blob.
-type validationRevertError struct {
-	error
-	reason string // revert reason hex encoded
-}
-
-func (v *validationRevertError) ErrorData() interface{} {
-	return v.reason
-}
-
-// newValidationRevertError creates a revertError instance with the provided revert data.
-func newValidationRevertError(vpr *core.ValidationPhaseResult) *validationRevertError {
-	errorMessage := fmt.Sprintf("validation phase reverted in contract %s", vpr.RevertEntityName)
-	// TODO: use "vm.ErrorX" for RIP-7560 specific errors as well!
-	err := errors.New(errorMessage)
-
-	reason, errUnpack := abi.UnpackRevert(vpr.RevertReason)
-	if errUnpack == nil {
-		err = fmt.Errorf("%w: %v", err, reason)
-	}
-	return &validationRevertError{
-		error:  err,
-		reason: hexutil.Encode(vpr.RevertReason),
-	}
-}
 
 // Rip7560API is the collection of tracing APIs exposed over the private debugging endpoint.
 type Rip7560API struct {
@@ -91,7 +60,7 @@ func (api *Rip7560API) TraceRip7560Validation(
 		return nil, err
 	}
 	if vpr != nil && vpr.RevertReason != nil {
-		return nil, newValidationRevertError(vpr)
+		return nil, core.NewValidationRevertError(vpr)
 	}
 	return traceResult, err
 }
