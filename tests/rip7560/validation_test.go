@@ -1,6 +1,7 @@
 package rip7560
 
 import (
+	"fmt"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -36,11 +37,11 @@ func TestValidationFailure_no_balance(t *testing.T) {
 	}, "insufficient funds for gas * price + value: address 0x1111111111222222222233333333334444444444 have 1 want 1000000000")
 }
 
-func TestValidationFailure_sigerror(t *testing.T) {
+func TestValidationFailure_no_accept_callback(t *testing.T) {
 	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER, returnWithData([]byte{}), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
 		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
-	}, "account signature error")
+	}, "account validation did not call the EntryPoint 'acceptAccount' callback")
 }
 
 func TestValidationFailure_validAfter(t *testing.T) {
@@ -105,7 +106,16 @@ func TestValidationFailure_account_revert_with_reason(t *testing.T) {
 		revertWithData(reason), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
 		ValidationGasLimit: 1_000_000,
 		GasFeeCap:          big.NewInt(1000000000),
-	}, "validation phase reverted in contract account: hello")
+	}, "validation phase reverted in contract account: hello, reason=0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000")
+}
+func TestValidationFailure_account_revert_with_custom(t *testing.T) {
+	// cast calldata  'Error(string)' hello
+	reason := hexutils.HexToBytes("deadface")
+	handleTransaction(newTestContextBuilder(t).withCode(DEFAULT_SENDER,
+		revertWithData(reason), DEFAULT_BALANCE), types.Rip7560AccountAbstractionTx{
+		ValidationGasLimit: 1_000_000,
+		GasFeeCap:          big.NewInt(1000000000),
+	}, "validation phase reverted in contract account, reason=0xdeadface")
 }
 
 func TestValidationFailure_account_no_return_value(t *testing.T) {
@@ -144,6 +154,13 @@ func handleTransaction(tb *testContextBuilder, aatx types.Rip7560AccountAbstract
 	errStr := "ok"
 	if err != nil {
 		errStr = err.Error()
+		vre, ok := err.(*core.ValidationRevertError)
+		if ok {
+			reason := vre.ErrorData()
+			if reason != "0x" {
+				errStr = fmt.Sprintf("%s, reason=%s", vre.Error(), vre.ErrorData())
+			}
+		}
 	}
 	assert.Equal(t.t, expectedErr, errStr)
 }
