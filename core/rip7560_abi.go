@@ -67,18 +67,24 @@ func decodeMethodParamsToInterface(output interface{}, methodName string, input 
 	return nil
 }
 
-func abiDecodeAcceptAccount(input []byte) (*AcceptAccountData, error) {
+func abiDecodeAcceptAccount(input []byte, allowSigFail bool) (*AcceptAccountData, error) {
 	acceptAccountData := &AcceptAccountData{}
 	err := decodeMethodParamsToInterface(acceptAccountData, "acceptAccount", input)
+	if err != nil && allowSigFail {
+		err = decodeMethodParamsToInterface(acceptAccountData, "sigFailAccount", input)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return acceptAccountData, nil
 }
 
-func abiDecodeAcceptPaymaster(input []byte) (*AcceptPaymasterData, error) {
+func abiDecodeAcceptPaymaster(input []byte, allowSigFail bool) (*AcceptPaymasterData, error) {
 	acceptPaymasterData := &AcceptPaymasterData{}
 	err := decodeMethodParamsToInterface(acceptPaymasterData, "acceptPaymaster", input)
+	if err != nil {
+		err = decodeMethodParamsToInterface(acceptPaymasterData, "sigFailPaymaster", input)
+	}
 	if err != nil {
 		return nil, err
 	}

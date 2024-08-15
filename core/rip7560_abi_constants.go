@@ -47,5 +47,22 @@ const Rip7560AbiJson = `
 			{"name": "validUntil","type": "uint256"},
 			{"name": "context","type": "bytes"}
 		]
+	},
+	{
+		"type":"function",
+		"name":"sigFailAccount",
+		"inputs": [
+			{"name": "validAfter","type": "uint256"},
+			{"name": "validUntil","type": "uint256"}
+		]
+	},
+	{
+		"type":"function",
+		"name":"sigFailPaymaster",
+		"inputs": [
+			{"name": "validAfter","type": "uint256"},
+			{"name": "validUntil","type": "uint256"},
+			{"name": "context","type": "bytes"}
+		]
 	}
 ]`
