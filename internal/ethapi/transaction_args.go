@@ -86,6 +86,9 @@ type TransactionArgs struct {
 	ValidationGas *hexutil.Uint64 `json:"verificationGasLimit"`
 	PaymasterGas  *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
 	PostOpGas     *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
+
+	// Introduced by RIP-7712 Transaction
+	BigNonce *hexutil.Big `json:"bigNonce,omitempty"`
 }
 
 // from retrieves the transaction sender address.
@@ -522,7 +525,7 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 			To:         &common.Address{},
 			ChainID:    (*big.Int)(args.ChainID),
 			Gas:        uint64(*args.Gas),
-			Nonce:      uint64(*args.Nonce),
+			BigNonce:   (*big.Int)(args.BigNonce),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
 			Value:      (*big.Int)(args.Value),

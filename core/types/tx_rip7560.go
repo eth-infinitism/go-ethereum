@@ -46,19 +46,23 @@ type Rip7560AccountAbstractionTx struct {
 	PaymasterValidationGasLimit uint64
 	PostOpGas                   uint64
 
+	// RIP-7712 two-dimensional nonce (optional)
+	BigNonce *big.Int
+
 	// removed fields
-	To    *common.Address `rlp:"nil"`
-	Nonce uint64
+	To *common.Address `rlp:"nil"`
+	//Nonce uint64
 	Value *big.Int
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 	cpy := &Rip7560AccountAbstractionTx{
-		To:    copyAddressPtr(tx.To),
-		Data:  common.CopyBytes(tx.Data),
-		Nonce: tx.Nonce,
-		Gas:   tx.Gas,
+		To:   copyAddressPtr(tx.To),
+		Data: common.CopyBytes(tx.Data),
+		//Nonce: tx.Nonce,
+		BigNonce: new(big.Int),
+		Gas:      tx.Gas,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
 		Value:      new(big.Int),
@@ -93,6 +97,9 @@ func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 	if tx.BuilderFee != nil {
 		cpy.BuilderFee.Set(tx.BuilderFee)
 	}
+	if tx.BigNonce != nil {
+		cpy.BigNonce.Set(tx.BigNonce)
+	}
 	return cpy
 }
 
@@ -106,8 +113,18 @@ func (tx *Rip7560AccountAbstractionTx) gasFeeCap() *big.Int    { return tx.GasFe
 func (tx *Rip7560AccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTipCap }
 func (tx *Rip7560AccountAbstractionTx) gasPrice() *big.Int     { return tx.GasFeeCap }
 func (tx *Rip7560AccountAbstractionTx) value() *big.Int        { return tx.Value }
-func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return tx.Nonce }
-func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return tx.To }
+
+// todo: changing the return type of this function is a pretty big code change
+func (tx *Rip7560AccountAbstractionTx) nonce() uint64 { return tx.BigNonce.Uint64() }
+
+// IsRip7712Nonce returns true if the transaction uses an RIP-7712 two-dimensional nonce
+func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
+	// todo: it seems like I don't understand something about go syntax as 2**64 looks weirdly complicated
+	maxUint64 := (&big.Int{}).Exp(big.NewInt(2), big.NewInt(64), nil)
+	return tx.BigNonce.Cmp(maxUint64) == 1
+}
+
+func (tx *Rip7560AccountAbstractionTx) to() *common.Address { return tx.To }
 
 func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
@@ -152,7 +169,7 @@ func (tx *Rip7560AccountAbstractionTx) decode(input []byte) error {
 // Rip7560Transaction an equivalent of a solidity struct only used to encode the 'transaction' parameter
 type Rip7560Transaction struct {
 	Sender                      common.Address
-	Nonce                       *big.Int
+	BigNonce                    *big.Int
 	ValidationGasLimit          *big.Int
 	PaymasterValidationGasLimit *big.Int
 	PostOpGasLimit              *big.Int
@@ -202,7 +219,7 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 
 	record := &Rip7560Transaction{
 		Sender:                      *tx.Sender,
-		Nonce:                       big.NewInt(int64(tx.Nonce)),
+		BigNonce:                    tx.BigNonce,
 		ValidationGasLimit:          big.NewInt(int64(tx.ValidationGasLimit)),
 		PaymasterValidationGasLimit: big.NewInt(int64(tx.PaymasterValidationGasLimit)),
 		PostOpGasLimit:              big.NewInt(int64(tx.PostOpGas)),

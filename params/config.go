@@ -174,6 +174,7 @@ var (
 		EIP155Block:                   big.NewInt(0),
 		EIP158Block:                   big.NewInt(0),
 		RIP7560Block:                  big.NewInt(0),
+		RIP7712Block:                  big.NewInt(0),
 		ByzantiumBlock:                big.NewInt(0),
 		ConstantinopleBlock:           big.NewInt(0),
 		PetersburgBlock:               big.NewInt(0),
@@ -338,6 +339,7 @@ type ChainConfig struct {
 	EIP158Block *big.Int `json:"eip158Block,omitempty"` // EIP158 HF block
 
 	RIP7560Block *big.Int `json:"rip7560block,omitempty"` // RIP7560 HF block
+	RIP7712Block *big.Int `json:"rip7712block,omitempty"` // RIP7712 HF block
 
 	ByzantiumBlock      *big.Int `json:"byzantiumBlock,omitempty"`      // Byzantium switch block (nil = no fork, 0 = already on byzantium)
 	ConstantinopleBlock *big.Int `json:"constantinopleBlock,omitempty"` // Constantinople switch block (nil = no fork, 0 = already activated)
@@ -592,6 +594,11 @@ func (c *ChainConfig) IsEIP4762(num *big.Int, time uint64) bool {
 // IsRIP7560 returns whether num is either equal to the RIP7560 fork block or greater.
 func (c *ChainConfig) IsRIP7560(num *big.Int) bool {
 	return isBlockForked(c.RIP7560Block, num)
+}
+
+// IsRIP7712 returns whether RIP7712 has been activated at given block.
+func (c *ChainConfig) IsRIP7712(num *big.Int) bool {
+	return isBlockForked(c.RIP7712Block, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported

@@ -141,7 +141,11 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB) error {
 	// Make sure this transaction's nonce is correct.
 	stNonce := st.GetNonce(*tx.Sender)
-	if msgNonce := tx.Nonce; stNonce < msgNonce {
+	if tx.IsRip7712Nonce() {
+		println("USING TWO-DIMENSIONAL NONCE")
+		panic(777)
+	}
+	if msgNonce := tx.BigNonce.Uint64(); stNonce < msgNonce {
 		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
 			tx.Sender.Hex(), msgNonce, stNonce)
 	} else if stNonce > msgNonce {
@@ -195,6 +199,17 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 
 	if evm.Config.Tracer.OnTxStart != nil {
 		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, common.Address{})
+	}
+
+	/*** Nonce Manager Frame ***/
+	if chainConfig.IsRIP7712(header.Number) {
+		if aatx.IsRip7712Nonce() {
+			println("USING TWO-DIMENSIONAL NONCE")
+			panic(777)
+			nonceManagerMessage := prepareNonceManagerMessage(tx)
+			resultNonceManager, err := ApplyMessage(evm, nonceManagerMessage, gp)
+			println(resultNonceManager, err)
+		}
 	}
 
 	/*** Deployer Frame ***/
