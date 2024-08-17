@@ -213,6 +213,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 			if err != nil {
 				return nil, fmt.Errorf("RIP-7712 nonce validation failed: %w", err)
 			}
+			if resultNonceManager.Failed() {
+				return nil, fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err)
+			}
 			nonceManagerUsedGas = resultNonceManager.UsedGas
 		}
 	}
