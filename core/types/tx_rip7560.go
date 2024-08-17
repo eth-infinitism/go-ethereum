@@ -188,7 +188,7 @@ type Rip7560Transaction struct {
 func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 	structThing, _ := abi.NewType("tuple", "struct thing", []abi.ArgumentMarshaling{
 		{Name: "sender", Type: "address"},
-		{Name: "nonce", Type: "uint256"},
+		{Name: "bigNonce", Type: "uint256"},
 		{Name: "validationGasLimit", Type: "uint256"},
 		{Name: "paymasterValidationGasLimit", Type: "uint256"},
 		{Name: "postOpGasLimit", Type: "uint256"},
