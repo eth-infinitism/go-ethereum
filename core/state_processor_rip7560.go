@@ -245,7 +245,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		if statedb.GetCodeSize(*sender) == 0 {
 			return nil, fmt.Errorf("account is not deployed and no factory is specified, account:%s", sender.String())
 		}
-		statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
+		if !aatx.IsRip7712Nonce() {
+			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
+		}
 	}
 
 	/*** Account Validation Frame ***/
