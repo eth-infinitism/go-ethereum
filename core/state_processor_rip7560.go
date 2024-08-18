@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"math/big"
@@ -333,11 +334,7 @@ func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *Exec
 	return paymasterPostOpResult, nil
 }
 
-func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
-
-	// TODO: snapshot EVM - we will revert back here if postOp fails
-	snapshotId := statedb.Snapshot()
-
+func applyRip7560ExecutionAndPostOpMessages(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*ExecutionResult, *ExecutionResult, error) {
 	blockContext := NewEVMBlockContext(header, bc, author)
 	message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
 	txContext := NewEVMTxContext(message)
@@ -347,15 +344,33 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx, evm.ChainConfig())
 	executionResult, err := ApplyMessage(evm, accountExecutionMsg, gp)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
 		paymasterPostOpResult, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp, statedb, header)
 	}
-	// PostOp failed, reverting execution changes
+	return executionResult, paymasterPostOpResult, err
+}
+
+func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+
+	// First we need to apply execution and postop messages to a copy, to be able to revert if
+	statedbCopy := statedb.Copy()
+	executionResult, paymasterPostOpResult, err := applyRip7560ExecutionAndPostOpMessages(config, vpr, bc, author, gp, statedbCopy, header, cfg)
 	if err != nil {
-		statedb.RevertToSnapshot(snapshotId)
+		return nil, err
+	}
+
+	// PostOp failed, reverting execution changes
+	if paymasterPostOpResult != nil && paymasterPostOpResult.Err != nil {
+		log.Error("postPaymasterTransaction reverted, not applying execution and postop")
+	} else {
+		// execution & postOp succeeded, applying to original stateDb
+		executionResult, paymasterPostOpResult, err = applyRip7560ExecutionAndPostOpMessages(config, vpr, bc, author, gp, statedb, header, cfg)
+	}
+
+	if err != nil {
 		return nil, err
 	}
 
