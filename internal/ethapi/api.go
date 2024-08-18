@@ -1361,6 +1361,9 @@ type RPCTransaction struct {
 	ValidationGas               *hexutil.Uint64 `json:"verificationGasLimit,omitempty"`
 	PaymasterValidationGasLimit *hexutil.Uint64 `json:"paymasterVerificationGasLimit,omitempty"`
 	PostOpGas                   *hexutil.Uint64 `json:"paymasterPostOpGasLimit,omitempty"`
+
+	// Introduced by RIP-7712
+	NonceKey *hexutil.Big `json:"nonceKey,omitempty"`
 }
 
 func toBytes(data []byte) *hexutil.Bytes {
@@ -1439,6 +1442,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		result.S = nil
 		result.R = nil
 		result.V = nil
+		result.NonceKey = (*hexutil.Big)(rip7560Tx.NonceKey)
 		result.Input = rip7560Tx.Data
 		result.Sender = rip7560Tx.Sender
 		result.Signature = toBytes(rip7560Tx.Signature)

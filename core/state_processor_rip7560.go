@@ -147,7 +147,7 @@ func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB)
 		return nil
 	}
 	stNonce := st.GetNonce(*tx.Sender)
-	if msgNonce := tx.BigNonce.Uint64(); stNonce < msgNonce {
+	if msgNonce := tx.Nonce; stNonce < msgNonce {
 		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
 			tx.Sender.Hex(), msgNonce, stNonce)
 	} else if stNonce > msgNonce {

@@ -11,14 +11,19 @@ import (
 var AA_NONCE_MANAGER = common.HexToAddress("0x63f63e798f5F6A934Acf0a3FD1C01f3Fac851fF0")
 
 func prepareNonceManagerMessage(baseTx *types.Transaction) *Message {
+	// TODO: this can probably be done a lot easier, check syntax
 	tx := baseTx.Rip7560TransactionData()
-	key := make([]byte, 32)
-	fromBig, _ := uint256.FromBig(tx.BigNonce)
-	fromBig.WriteToSlice(key)
+	nonceKey := make([]byte, 24)
+	nonce := make([]byte, 8)
+	nonceKey256, _ := uint256.FromBig(tx.NonceKey)
+	nonce256 := uint256.NewInt(tx.Nonce)
+	nonceKey256.WriteToSlice(nonceKey)
+	nonce256.WriteToSlice(nonce)
 
 	nonceManagerData := make([]byte, 0)
 	nonceManagerData = append(nonceManagerData[:], tx.Sender.Bytes()...)
-	nonceManagerData = append(nonceManagerData[:], key...)
+	nonceManagerData = append(nonceManagerData[:], nonceKey...)
+	nonceManagerData = append(nonceManagerData[:], nonce...)
 	return &Message{
 		From:              AA_ENTRY_POINT,
 		To:                &AA_NONCE_MANAGER,

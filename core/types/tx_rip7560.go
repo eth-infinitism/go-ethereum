@@ -28,6 +28,7 @@ import (
 type Rip7560AccountAbstractionTx struct {
 	// overlapping fields
 	ChainID    *big.Int
+	Nonce      uint64
 	GasTipCap  *big.Int // a.k.a. maxPriorityFeePerGas
 	GasFeeCap  *big.Int // a.k.a. maxFeePerGas
 	Gas        uint64
@@ -46,22 +47,21 @@ type Rip7560AccountAbstractionTx struct {
 	PaymasterValidationGasLimit uint64
 	PostOpGas                   uint64
 
-	// RIP-7712 two-dimensional nonce (optional)
-	BigNonce *big.Int
+	// RIP-7712 two-dimensional nonce (optional), 192 bits
+	NonceKey *big.Int
 
 	// removed fields
-	To *common.Address `rlp:"nil"`
-	//Nonce uint64
+	To    *common.Address `rlp:"nil"`
 	Value *big.Int
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 	cpy := &Rip7560AccountAbstractionTx{
-		To:   copyAddressPtr(tx.To),
-		Data: common.CopyBytes(tx.Data),
-		//Nonce: tx.Nonce,
-		BigNonce: new(big.Int),
+		To:       copyAddressPtr(tx.To),
+		Data:     common.CopyBytes(tx.Data),
+		Nonce:    tx.Nonce,
+		NonceKey: new(big.Int),
 		Gas:      tx.Gas,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
@@ -97,8 +97,8 @@ func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 	if tx.BuilderFee != nil {
 		cpy.BuilderFee.Set(tx.BuilderFee)
 	}
-	if tx.BigNonce != nil {
-		cpy.BigNonce.Set(tx.BigNonce)
+	if tx.NonceKey != nil {
+		cpy.NonceKey.Set(tx.NonceKey)
 	}
 	return cpy
 }
@@ -113,18 +113,13 @@ func (tx *Rip7560AccountAbstractionTx) gasFeeCap() *big.Int    { return tx.GasFe
 func (tx *Rip7560AccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTipCap }
 func (tx *Rip7560AccountAbstractionTx) gasPrice() *big.Int     { return tx.GasFeeCap }
 func (tx *Rip7560AccountAbstractionTx) value() *big.Int        { return tx.Value }
-
-// todo: changing the return type of this function is a pretty big code change
-func (tx *Rip7560AccountAbstractionTx) nonce() uint64 { return tx.BigNonce.Uint64() }
+func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return tx.Nonce }
+func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return tx.To }
 
 // IsRip7712Nonce returns true if the transaction uses an RIP-7712 two-dimensional nonce
 func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
-	// todo: it seems like I don't understand something about go syntax as 2**64 looks weirdly complicated
-	maxUint64 := (&big.Int{}).Exp(big.NewInt(2), big.NewInt(64), nil)
-	return tx.BigNonce.Cmp(maxUint64) == 1
+	return tx.NonceKey != nil && tx.NonceKey.Cmp(big.NewInt(0)) == 1
 }
-
-func (tx *Rip7560AccountAbstractionTx) to() *common.Address { return tx.To }
 
 func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
@@ -169,7 +164,8 @@ func (tx *Rip7560AccountAbstractionTx) decode(input []byte) error {
 // Rip7560Transaction an equivalent of a solidity struct only used to encode the 'transaction' parameter
 type Rip7560Transaction struct {
 	Sender                      common.Address
-	BigNonce                    *big.Int
+	NonceKey                    *big.Int
+	Nonce                       *big.Int
 	ValidationGasLimit          *big.Int
 	PaymasterValidationGasLimit *big.Int
 	PostOpGasLimit              *big.Int
@@ -188,7 +184,8 @@ type Rip7560Transaction struct {
 func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 	structThing, _ := abi.NewType("tuple", "struct thing", []abi.ArgumentMarshaling{
 		{Name: "sender", Type: "address"},
-		{Name: "bigNonce", Type: "uint256"},
+		{Name: "nonceKey", Type: "uint256"},
+		{Name: "nonce", Type: "uint256"},
 		{Name: "validationGasLimit", Type: "uint256"},
 		{Name: "paymasterValidationGasLimit", Type: "uint256"},
 		{Name: "postOpGasLimit", Type: "uint256"},
@@ -219,7 +216,8 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 
 	record := &Rip7560Transaction{
 		Sender:                      *tx.Sender,
-		BigNonce:                    tx.BigNonce,
+		NonceKey:                    tx.NonceKey,
+		Nonce:                       big.NewInt(int64(tx.Nonce)),
 		ValidationGasLimit:          big.NewInt(int64(tx.ValidationGasLimit)),
 		PaymasterValidationGasLimit: big.NewInt(int64(tx.PaymasterValidationGasLimit)),
 		PostOpGasLimit:              big.NewInt(int64(tx.PostOpGas)),
