@@ -314,7 +314,7 @@ func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, c
 	return apd.Context, nil, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
 
-func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) (*ExecutionResult, error) {
+func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool) (*ExecutionResult, error) {
 	var paymasterPostOpResult *ExecutionResult
 	paymasterPostOpMsg, err := preparePostOpMessage(vpr, evm.ChainConfig(), executionResult)
 	if err != nil {
@@ -324,11 +324,12 @@ func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *Exec
 	if err != nil {
 		return nil, err
 	}
-	// TODO: revert the execution phase changes
 	return paymasterPostOpResult, nil
 }
 
-func applyRip7560ExecutionAndPostOpMessages(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*ExecutionResult, *ExecutionResult, error) {
+func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+
+	beforeExecSnapshotId := statedb.Snapshot()
 	blockContext := NewEVMBlockContext(header, bc, author)
 	message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
 	txContext := NewEVMTxContext(message)
@@ -337,31 +338,22 @@ func applyRip7560ExecutionAndPostOpMessages(config *params.ChainConfig, vpr *Val
 
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx, evm.ChainConfig())
 	executionResult, err := ApplyMessage(evm, accountExecutionMsg, gp)
-	if err != nil {
-		return nil, nil, err
-	}
-	var paymasterPostOpResult *ExecutionResult
-	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp, statedb, header)
-	}
-	return executionResult, paymasterPostOpResult, err
-}
-
-func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
-
-	// First we need to apply execution and postop messages to a copy, to be able to revert if
-	statedbCopy := statedb.Copy()
-	executionResult, paymasterPostOpResult, err := applyRip7560ExecutionAndPostOpMessages(config, vpr, bc, author, gp, statedbCopy, header, cfg)
+	executionAL := statedb.AccessListCopy()
 	if err != nil {
 		return nil, err
+	}
+	beforePostSnapshotId := statedb.Snapshot()
+	var paymasterPostOpResult *ExecutionResult
+	if len(vpr.PaymasterContext) != 0 {
+		paymasterPostOpResult, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp)
 	}
 
 	// PostOp failed, reverting execution changes
 	if paymasterPostOpResult != nil && paymasterPostOpResult.Err != nil {
 		log.Error("postPaymasterTransaction reverted, not applying execution and postop")
-	} else {
-		// execution & postOp succeeded, applying to original stateDb
-		executionResult, paymasterPostOpResult, err = applyRip7560ExecutionAndPostOpMessages(config, vpr, bc, author, gp, statedb, header, cfg)
+		statedb.RevertToSnapshot(beforePostSnapshotId)
+		statedb.SetAccessList(executionAL)
+		statedb.RevertToSnapshot(beforeExecSnapshotId)
 	}
 
 	if err != nil {
@@ -411,7 +403,7 @@ func prepareDeployerMessage(baseTx *types.Transaction, config *params.ChainConfi
 		GasFeeCap:         tx.GasFeeCap,
 		GasTipCap:         tx.GasTipCap,
 		Data:              tx.DeployerData,
-		AccessList:        make(types.AccessList, 0),
+		AccessList:        nil,
 		SkipAccountChecks: true,
 		IsRip7560Frame:    true,
 	}
@@ -432,7 +424,7 @@ func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *par
 		GasFeeCap:         tx.GasFeeCap,
 		GasTipCap:         tx.GasTipCap,
 		Data:              data,
-		AccessList:        make(types.AccessList, 0),
+		AccessList:        nil,
 		SkipAccountChecks: true,
 		IsRip7560Frame:    true,
 	}, nil
@@ -456,7 +448,7 @@ func preparePaymasterValidationMessage(baseTx *types.Transaction, config *params
 		GasFeeCap:         tx.GasFeeCap,
 		GasTipCap:         tx.GasTipCap,
 		Data:              data,
-		AccessList:        make(types.AccessList, 0),
+		AccessList:        nil,
 		SkipAccountChecks: true,
 		IsRip7560Frame:    true,
 	}, nil
@@ -473,7 +465,7 @@ func prepareAccountExecutionMessage(baseTx *types.Transaction, config *params.Ch
 		GasFeeCap:         tx.GasFeeCap,
 		GasTipCap:         tx.GasTipCap,
 		Data:              tx.Data,
-		AccessList:        make(types.AccessList, 0),
+		AccessList:        nil,
 		SkipAccountChecks: true,
 		IsRip7560Frame:    true,
 	}
