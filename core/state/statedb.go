@@ -723,6 +723,14 @@ func (s *StateDB) Copy() *StateDB {
 	return state
 }
 
+func (s *StateDB) AccessListCopy() *accessList {
+	return s.accessList.Copy()
+}
+
+func (s *StateDB) SetAccessList(al *accessList) {
+	s.accessList = al
+}
+
 // Snapshot returns an identifier for the current revision of the state.
 func (s *StateDB) Snapshot() int {
 	id := s.nextRevisionId
