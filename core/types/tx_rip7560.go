@@ -100,7 +100,7 @@ func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 func (tx *Rip7560AccountAbstractionTx) txType() byte           { return Rip7560Type }
 func (tx *Rip7560AccountAbstractionTx) chainID() *big.Int      { return tx.ChainID }
 func (tx *Rip7560AccountAbstractionTx) accessList() AccessList { return tx.AccessList }
-func (tx *Rip7560AccountAbstractionTx) data() []byte           { return tx.ExecutionData }
+func (tx *Rip7560AccountAbstractionTx) data() []byte           { return make([]byte, 0) }
 func (tx *Rip7560AccountAbstractionTx) gas() uint64            { return tx.Gas }
 func (tx *Rip7560AccountAbstractionTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
 func (tx *Rip7560AccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTipCap }
