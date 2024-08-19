@@ -107,7 +107,7 @@ func (tx *Rip7560AccountAbstractionTx) gasTipCap() *big.Int    { return tx.GasTi
 func (tx *Rip7560AccountAbstractionTx) gasPrice() *big.Int     { return tx.GasFeeCap }
 func (tx *Rip7560AccountAbstractionTx) value() *big.Int        { return big.NewInt(0) }
 func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return tx.Nonce }
-func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return &common.Address{} }
+func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return nil }
 
 // IsRip7712Nonce returns true if the transaction uses an RIP-7712 two-dimensional nonce
 func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
