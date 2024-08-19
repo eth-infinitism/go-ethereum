@@ -490,7 +490,7 @@ func prepareAccountExecutionMessage(baseTx *types.Transaction, config *params.Ch
 		GasPrice:          tx.GasFeeCap,
 		GasFeeCap:         tx.GasFeeCap,
 		GasTipCap:         tx.GasTipCap,
-		Data:              tx.Data,
+		Data:              tx.ExecutionData,
 		AccessList:        nil,
 		SkipAccountChecks: true,
 		IsRip7560Frame:    true,

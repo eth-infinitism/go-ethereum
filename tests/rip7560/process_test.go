@@ -45,7 +45,7 @@ func TestProcess1(t *testing.T) {
 			Sender:             &Sender,
 			ValidationGasLimit: uint64(1000000000),
 			GasFeeCap:          big.NewInt(1000000000),
-			Data:               []byte{1, 2, 3},
+			ExecutionData:      []byte{1, 2, 3},
 		},
 	})
 	assert.NoError(t, err)

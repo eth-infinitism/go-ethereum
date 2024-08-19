@@ -1443,9 +1443,9 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		result.R = nil
 		result.V = nil
 		result.NonceKey = (*hexutil.Big)(rip7560Tx.NonceKey)
-		result.Input = rip7560Tx.Data
+		result.Input = rip7560Tx.ExecutionData
 		result.Sender = rip7560Tx.Sender
-		result.Signature = toBytes(rip7560Tx.Signature)
+		result.Signature = toBytes(rip7560Tx.AuthorizationData)
 		result.Gas = hexutil.Uint64(tx.Gas())
 		result.Paymaster = rip7560Tx.Paymaster
 		result.PaymasterData = toBytes(rip7560Tx.PaymasterData)
