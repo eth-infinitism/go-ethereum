@@ -155,9 +155,17 @@ func returnWithData(data []byte) []byte {
 	ret := append(copyToMemory(data, 0), createCode(vm.PUSH2, uint16(len(data)), vm.PUSH0, vm.RETURN)...)
 	return ret
 }
-
 func createAccountCode() []byte {
-	return nil
+	return createAccountCodeWithRange(0, 0)
+}
+
+func createAccountCodeWithRange(validAfter, validUntil uint64) []byte {
+	acceptAccountCallData, err := core.Rip7560Abi.Pack("acceptAccount", big.NewInt(int64(validAfter)), big.NewInt(int64(validUntil)))
+	if err != nil {
+		panic("failed to encode acceptAccount")
+	}
+	return doCall(core.AA_ENTRY_POINT, acceptAccountCallData)
+
 }
 
 // create EVM code from OpCode, byte and []bytes
@@ -196,6 +204,30 @@ func createCode(items ...interface{}) []byte {
 	}
 
 	return buffer.Bytes()
+}
+
+// return bytecode for calling the given address, with the given data
+func doCall(address common.Address, data []byte) []byte {
+	return createCode(
+		copyToMemory(data, 0),
+		vm.PUSH0,        // retLength
+		vm.PUSH0,        // retOffset
+		push(len(data)), // argsLength
+		vm.PUSH0,        // argsOffset
+		vm.PUSH0,        // value
+		vm.PUSH20,
+		address.Bytes(), // address
+		vm.GAS,          // gas
+		vm.CALL)
+}
+
+func paymasterAcceptReturnValue(validAfter, validUntil uint64, context []byte) []byte {
+
+	acceptPaymasterCallData, err := core.Rip7560Abi.Pack("acceptPaymaster", big.NewInt(int64(validAfter)), big.NewInt(int64(validUntil)), context)
+	if err != nil {
+		panic("failed to encode acceptPaymaster")
+	}
+	return doCall(core.AA_ENTRY_POINT, acceptPaymasterCallData)
 }
 
 func asBytes32(a int) []byte {

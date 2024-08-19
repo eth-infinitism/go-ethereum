@@ -3,7 +3,9 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -42,6 +44,35 @@ type ValidationPhaseResult struct {
 	RevertEntityName    string
 }
 
+//  note: revertError code is copied here from the 'ethapi' package
+
+// revertError is an API error that encompasses an EVM revert with JSON error
+// code and a binary data blob.
+type ValidationRevertError struct {
+	error
+	reason string // revert reason hex encoded
+}
+
+func (v *ValidationRevertError) ErrorData() interface{} {
+	return v.reason
+}
+
+// NewValidationRevertError creates a revertError instance with the provided revert data.
+func NewValidationRevertError(vpr *ValidationPhaseResult) *ValidationRevertError {
+	errorMessage := fmt.Sprintf("validation phase reverted in contract %s", vpr.RevertEntityName)
+	// TODO: use "vm.ErrorX" for RIP-7560 specific errors as well!
+	err := errors.New(errorMessage)
+
+	reason, errUnpack := abi.UnpackRevert(vpr.RevertReason)
+	if errUnpack == nil {
+		err = fmt.Errorf("%w: %v", err, reason)
+	}
+	return &ValidationRevertError{
+		error:  err,
+		reason: hexutil.Encode(vpr.RevertReason),
+	}
+}
+
 // HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
 // the number of handled transactions
 // the transactions array must start with the RIP-7560 transaction
@@ -72,9 +103,12 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 
 		statedb.SetTxContext(tx.Hash(), index+i)
 
-		vpr, err := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
+		vpr, err := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg, false)
 		if err != nil {
 			return nil, nil, nil, err
+		}
+		if vpr.RevertEntityName != "" {
+			return nil, nil, nil, NewValidationRevertError(vpr)
 		}
 		validationPhaseResults = append(validationPhaseResults, vpr)
 		validatedTransactions = append(validatedTransactions, tx)
@@ -159,7 +193,7 @@ func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB)
 	return nil
 }
 
-func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config) (*ValidationPhaseResult, error) {
+func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, cfg vm.Config, allowSigFail bool) (*ValidationPhaseResult, error) {
 	aatx := tx.Rip7560TransactionData()
 	err := CheckNonceRip7560(aatx, statedb)
 	if err != nil {
@@ -232,7 +266,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 			resultDeployer, err = ApplyMessage(evm, deployerMsg, gp)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("account deployment failed: %v", err)
+			return nil, fmt.Errorf("account deployment failed: %w", err)
 		}
 		if resultDeployer.Failed() {
 			return &ValidationPhaseResult{
@@ -241,7 +275,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 			}, nil
 		}
 		if statedb.GetCodeSize(*sender) == 0 {
-			return nil, fmt.Errorf("account was not deployed by a factory, account:%s factory%s", sender.String(), deployerMsg.To.String())
+			return nil, fmt.Errorf("account was not deployed by a factory, account:%s factory:%s", sender.String(), deployerMsg.To.String())
 		}
 		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
@@ -267,7 +301,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 			RevertReason:     resultAccountValidation.ReturnData,
 		}, nil
 	}
-	aad, err := validateAccountEntryPointCall(epc, aatx.Sender)
+	aad, err := validateAccountEntryPointCall(epc, aatx.Sender, allowSigFail)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +317,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	}
 
 	vpr := &ValidationPhaseResult{}
-	paymasterContext, paymasterRevertReason, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(epc, tx, chainConfig, signingHash, evm, gp, statedb, header)
+	paymasterContext, paymasterRevertReason, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(epc, tx, chainConfig, signingHash, evm, gp, statedb, header, allowSigFail)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +346,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	return vpr, nil
 }
 
-func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header) ([]byte, []byte, uint64, uint64, uint64, error) {
+func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, evm *vm.EVM, gp *GasPool, statedb *state.StateDB, header *types.Header, allowSigFail bool) ([]byte, []byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	aatx := tx.Rip7560TransactionData()
 	var pmValidationUsedGas uint64
@@ -328,7 +362,7 @@ func applyPaymasterValidationFrame(epc *EntryPointCall, tx *types.Transaction, c
 		return nil, resultPm.ReturnData, 0, 0, 0, nil
 	}
 	pmValidationUsedGas = resultPm.UsedGas
-	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster)
+	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster, allowSigFail)
 	if err != nil {
 		return nil, nil, 0, 0, 0, err
 	}
@@ -521,7 +555,7 @@ func preparePostOpMessage(vpr *ValidationPhaseResult, chainConfig *params.ChainC
 	}, nil
 }
 
-func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) (*AcceptAccountData, error) {
+func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address, allowSigFail bool) (*AcceptAccountData, error) {
 	if epc.err != nil {
 		return nil, epc.err
 	}
@@ -534,10 +568,10 @@ func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) 
 	if epc.From.Cmp(*sender) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong account address")
 	}
-	return abiDecodeAcceptAccount(epc.Input)
+	return abiDecodeAcceptAccount(epc.Input, allowSigFail)
 }
 
-func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Address) (*AcceptPaymasterData, error) {
+func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Address, allowSigFail bool) (*AcceptPaymasterData, error) {
 	if epc.err != nil {
 		return nil, epc.err
 	}
@@ -545,13 +579,10 @@ func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Addr
 		return nil, errors.New("paymaster validation did not call the EntryPoint 'acceptPaymaster' callback")
 	}
 
-	if len(epc.Input) < 100 {
-		return nil, errors.New("invalid paymaster callback data length")
-	}
 	if epc.From.Cmp(*paymaster) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong paymaster address")
 	}
-	apd, err := abiDecodeAcceptPaymaster(epc.Input)
+	apd, err := abiDecodeAcceptPaymaster(epc.Input, allowSigFail)
 	if err != nil {
 		return nil, err
 	}
