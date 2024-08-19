@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"math/big"
@@ -350,8 +349,8 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 	// PostOp failed, reverting execution changes
 	if paymasterPostOpResult != nil && paymasterPostOpResult.Err != nil {
-		log.Error("postPaymasterTransaction reverted, not applying execution and postop")
 		statedb.RevertToSnapshot(beforePostSnapshotId)
+		// Workaround a bug in snapshot/revert - can't be called after multiple ApplyMessage() calls
 		statedb.SetAccessList(executionAL)
 		statedb.RevertToSnapshot(beforeExecSnapshotId)
 	}
