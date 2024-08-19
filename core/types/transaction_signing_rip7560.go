@@ -32,7 +32,6 @@ func (s rip7560Signer) Hash(tx *Transaction) common.Hash {
 			tx.GasTipCap(),
 			tx.GasFeeCap(),
 			tx.Gas(),
-			//tx.To(),
 			tx.Data(),
 			tx.AccessList(),
 

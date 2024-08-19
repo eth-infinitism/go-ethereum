@@ -531,7 +531,7 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 			GasFeeCap: (*big.Int)(args.MaxFeePerGas),
 			GasTipCap: (*big.Int)(args.MaxPriorityFeePerGas),
 			//Value:         (*big.Int)(args.Value),
-			ExecutionData: args.data(),
+			ExecutionData: *args.ExecutionData,
 			AccessList:    al,
 			// RIP-7560 parameters
 			Sender:                      args.Sender,
@@ -545,6 +545,15 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 			PaymasterValidationGasLimit: toUint64(args.PaymasterGas),
 			PostOpGas:                   toUint64(args.PostOpGas),
 		}
+
+		zeroAddress := common.Address{}
+		if aatx.Paymaster != nil && zeroAddress.Cmp(*aatx.Paymaster) == 0 {
+			aatx.Paymaster = nil
+		}
+		if aatx.Deployer != nil && zeroAddress.Cmp(*aatx.Deployer) == 0 {
+			aatx.Deployer = nil
+		}
+
 		data = &aatx
 		hash := types.NewTx(data).Hash()
 		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex(), "hash", hash)

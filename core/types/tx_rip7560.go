@@ -49,10 +49,6 @@ type Rip7560AccountAbstractionTx struct {
 
 	// RIP-7712 two-dimensional nonce (optional), 192 bits
 	NonceKey *big.Int
-
-	// removed fields
-	//To    *common.Address `rlp:"nil"`
-	//Value *big.Int
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
@@ -82,9 +78,6 @@ func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 		PostOpGas:                   tx.PostOpGas,
 	}
 	copy(cpy.AccessList, tx.AccessList)
-	//if tx.Value != nil {
-	//	cpy.Value.Set(tx.Value)
-	//}
 	if tx.ChainID != nil {
 		cpy.ChainID.Set(tx.ChainID)
 	}
@@ -150,9 +143,6 @@ func (t *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
 	if tx.Deployer != nil && zeroAddress.Cmp(*tx.Deployer) == 0 {
 		tx.Deployer = nil
 	}
-	//if tx.To != nil && zeroAddress.Cmp(*tx.To) == 0 {
-	//	tx.To = nil
-	//}
 	return rlp.Encode(b, tx)
 }
 
@@ -177,8 +167,8 @@ type Rip7560Transaction struct {
 	PaymasterData               []byte
 	Deployer                    common.Address
 	DeployerData                []byte
-	CallData                    []byte
-	Signature                   []byte
+	ExecutionData               []byte
+	AuthorizationData           []byte
 }
 
 func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
@@ -197,8 +187,8 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 		{Name: "paymasterData", Type: "bytes"},
 		{Name: "deployer", Type: "address"},
 		{Name: "deployerData", Type: "bytes"},
-		{Name: "callData", Type: "bytes"},
-		{Name: "signature", Type: "bytes"},
+		{Name: "executionData", Type: "bytes"},
+		{Name: "authorizationData", Type: "bytes"},
 	})
 
 	args := abi.Arguments{
@@ -229,8 +219,8 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 		PaymasterData:               tx.PaymasterData,
 		Deployer:                    *deployer,
 		DeployerData:                tx.DeployerData,
-		CallData:                    tx.ExecutionData,
-		Signature:                   tx.AuthorizationData,
+		ExecutionData:               tx.ExecutionData,
+		AuthorizationData:           tx.AuthorizationData,
 	}
 	packed, err := args.Pack(&record)
 	return packed, err
