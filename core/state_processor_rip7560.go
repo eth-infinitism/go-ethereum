@@ -143,7 +143,6 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB) error {
 	// RIP-7712 two-dimensional nonce is checked on-chain
 	if tx.IsRip7712Nonce() {
-		println("USING TWO-DIMENSIONAL NONCE")
 		return nil
 	}
 	stNonce := st.GetNonce(*tx.Sender)
@@ -205,9 +204,8 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 
 	/*** Nonce Manager Frame ***/
 	var nonceManagerUsedGas uint64
-	if chainConfig.IsRIP7712(header.Number) {
-		if aatx.IsRip7712Nonce() {
-			println("USING TWO-DIMENSIONAL NONCE")
+	if aatx.IsRip7712Nonce() {
+		if chainConfig.IsRIP7712(header.Number) {
 			nonceManagerMessage := prepareNonceManagerMessage(tx)
 			resultNonceManager, err := ApplyMessage(evm, nonceManagerMessage, gp)
 			if err != nil {
@@ -217,6 +215,8 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 				return nil, fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err)
 			}
 			nonceManagerUsedGas = resultNonceManager.UsedGas
+		} else {
+			return nil, fmt.Errorf("RIP-7712 nonce is disabled")
 		}
 	}
 
