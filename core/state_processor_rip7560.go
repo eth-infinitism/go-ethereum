@@ -210,10 +210,6 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 // (standard preCheck function check both nonce and no-code of account)
 // Make sure this transaction's nonce is correct.
 func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB) error {
-	// RIP-7712 two-dimensional nonce is checked on-chain
-	if tx.IsRip7712Nonce() {
-		return nil
-	}
 	stNonce := st.GetNonce(*tx.Sender)
 	if msgNonce := tx.Nonce; stNonce < msgNonce {
 		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
@@ -292,10 +288,6 @@ func ApplyRip7560ValidationPhases(
 		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, common.Address{})
 	}
 
-	err = CheckNonceRip7560(aatx, statedb)
-	if err != nil {
-		return nil, err
-	}
 	st := NewStateTransition(evm, nil, gp)
 	st.initialGas = gasLimit
 	st.gasRemaining = gasLimit
@@ -316,6 +308,12 @@ func ApplyRip7560ValidationPhases(
 			)
 		}
 		nonceManagerUsedGas = resultNonceManager.UsedGas
+	} else {
+		err = CheckNonceRip7560(aatx, statedb)
+		if err != nil {
+			return nil, err
+		}
+
 	}
 
 	/*** Deployer Frame ***/
