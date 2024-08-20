@@ -30,23 +30,22 @@ func (s rip7560Signer) Hash(tx *Transaction) common.Hash {
 		[]interface{}{
 			s.chainId,
 			aatx.Nonce,
+			aatx.NonceKey,
+			aatx.Sender,
+			aatx.Deployer,
+			aatx.DeployerData,
+			aatx.Paymaster,
+			aatx.PaymasterData,
+			aatx.ExecutionData,
+			aatx.BuilderFee,
 			tx.GasTipCap(),
 			tx.GasFeeCap(),
+			aatx.ValidationGasLimit,
+			aatx.PaymasterValidationGasLimit,
+			aatx.PostOpGas,
 			tx.Gas(),
 			tx.AccessList(),
 
-			aatx.Sender,
 			// no AuthorizationData here - this is hashing "for signing"
-			aatx.ExecutionData,
-			aatx.Paymaster,
-			aatx.PaymasterData,
-			aatx.Deployer,
-			aatx.DeployerData,
-			aatx.BuilderFee,
-			aatx.ValidationGasLimit,
-			aatx.PaymasterValidationGasLimit,
-
-			aatx.PostOpGas,
-			aatx.NonceKey,
 		})
 }
