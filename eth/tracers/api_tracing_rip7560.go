@@ -31,18 +31,31 @@ func (v *validationRevertError) ErrorData() interface{} {
 }
 
 // newValidationRevertError creates a revertError instance with the provided revert data.
-func newValidationRevertError(vpr *core.ValidationPhaseResult) *validationRevertError {
-	errorMessage := fmt.Sprintf("validation phase reverted in contract %s", vpr.RevertEntityName)
+func newValidationRevertError(vpe *core.ValidationPhaseError) *validationRevertError {
+	var errorMessage string
+	contractSubst := ""
+	if vpe.RevertEntityName != nil {
+		contractSubst = fmt.Sprintf(" in contract %s", *vpe.RevertEntityName)
+	}
+	if vpe.Err != nil {
+		errorMessage = fmt.Sprintf(
+			"validation phase failed%s with exception: %s",
+			contractSubst,
+			vpe.Err.Error(),
+		)
+	} else {
+		errorMessage = fmt.Sprintf("validation phase failed%s", contractSubst)
+	}
 	// TODO: use "vm.ErrorX" for RIP-7560 specific errors as well!
 	err := errors.New(errorMessage)
 
-	reason, errUnpack := abi.UnpackRevert(vpr.RevertReason)
+	reason, errUnpack := abi.UnpackRevert(vpe.RevertReason)
 	if errUnpack == nil {
 		err = fmt.Errorf("%w: %v", err, reason)
 	}
 	return &validationRevertError{
 		error:  err,
-		reason: hexutil.Encode(vpr.RevertReason),
+		reason: hexutil.Encode(vpe.RevertReason),
 	}
 }
 
@@ -86,12 +99,12 @@ func (api *Rip7560API) TraceRip7560Validation(
 	if config != nil {
 		traceConfig = &config.TraceConfig
 	}
-	traceResult, vpr, err := api.traceTx(ctx, tx, new(Context), block, vmctx, statedb, traceConfig)
+	traceResult, vpe, err := api.traceTx(ctx, tx, new(Context), block, vmctx, statedb, traceConfig)
 	if err != nil {
 		return nil, err
 	}
-	if vpr != nil && vpr.RevertReason != nil {
-		return nil, newValidationRevertError(vpr)
+	if vpe != nil {
+		return nil, newValidationRevertError(vpe)
 	}
 	return traceResult, err
 }
@@ -117,7 +130,15 @@ func (api *Rip7560API) chainContext(ctx context.Context) core.ChainContext {
 	return ethapi.NewChainContext(ctx, api.backend)
 }
 
-func (api *Rip7560API) traceTx(ctx context.Context, tx *types.Transaction, txctx *Context, block *types.Block, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig) (interface{}, *core.ValidationPhaseResult, error) {
+func (api *Rip7560API) traceTx(
+	ctx context.Context,
+	tx *types.Transaction,
+	txctx *Context,
+	block *types.Block,
+	vmctx vm.BlockContext,
+	statedb *state.StateDB,
+	config *TraceConfig,
+) (interface{}, *core.ValidationPhaseError, error) {
 	var (
 		tracer  *Tracer
 		err     error
@@ -171,10 +192,7 @@ func (api *Rip7560API) traceTx(ctx context.Context, tx *types.Transaction, txctx
 		return result, nil, err
 	}
 
-	vpr, err := core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("tracing failed: %w", err)
-	}
+	_, vpe := core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
 	result, err := tracer.GetResult()
-	return result, vpr, err
+	return result, vpe, err
 }

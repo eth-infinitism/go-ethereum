@@ -382,11 +382,13 @@ func (miner *Miner) commitRip7560TransactionsBundle(env *environment, txs *types
 	}
 
 	validatedTxs, receipts, _, err := core.HandleRip7560Transactions(txs.Transactions, 0, env.state, &env.coinbase, env.header, env.gasPool, miner.chainConfig, miner.chain, vm.Config{})
-
+	if err != nil {
+		return err
+	}
 	env.txs = append(env.txs, validatedTxs...)
 	env.receipts = append(env.receipts, receipts...)
 	env.tcount += len(validatedTxs)
-	return err
+	return nil
 }
 
 // fillTransactions retrieves the pending transactions from the txpool and fills them
