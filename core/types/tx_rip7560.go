@@ -110,7 +110,7 @@ func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return tx.Nonce
 func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return nil }
 
 func (tx *Rip7560AccountAbstractionTx) GasPayer() *common.Address {
-	if tx.Paymaster != nil && tx.Paymaster.Cmp(*tx.Paymaster) != 0 {
+	if tx.Paymaster != nil && tx.Paymaster.Cmp(common.Address{}) != 0 {
 		return tx.Paymaster
 	}
 	return tx.Sender
