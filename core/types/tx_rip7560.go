@@ -109,6 +109,13 @@ func (tx *Rip7560AccountAbstractionTx) value() *big.Int        { return big.NewI
 func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return tx.Nonce }
 func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return nil }
 
+func (tx *Rip7560AccountAbstractionTx) GasPayer() *common.Address {
+	if tx.Paymaster != nil && tx.Paymaster.Cmp(*tx.Paymaster) != 0 {
+		return tx.Paymaster
+	}
+	return tx.Sender
+}
+
 // IsRip7712Nonce returns true if the transaction uses an RIP-7712 two-dimensional nonce
 func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
 	return tx.NonceKey != nil && tx.NonceKey.Cmp(big.NewInt(0)) == 1
