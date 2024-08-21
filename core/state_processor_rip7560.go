@@ -16,12 +16,6 @@ import (
 	"math/big"
 )
 
-var AA_ENTRY_POINT = common.HexToAddress("0x0000000000000000000000000000000000007560")
-var AA_SENDER_CREATOR = common.HexToAddress("0x00000000000000000000000000000000ffff7560")
-
-// always pay 10% of unused execution gas
-const AA_GAS_PENALTY_PCT = 10
-
 type EntryPointCall struct {
 	OnEnterSuper tracing.EnterHook
 	Input        []byte
@@ -440,14 +434,11 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
 
-func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, executionResult *ExecutionResult) (*ExecutionResult, error) {
+func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, success bool, gasUsed uint64) *ExecutionResult {
 	var paymasterPostOpResult *ExecutionResult
-	paymasterPostOpMsg, err := preparePostOpMessage(vpr)
-	if err != nil {
-		return nil, err
-	}
+	paymasterPostOpMsg := preparePostOpMessage(vpr, success, gasUsed)
 	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg, aatx.PostOpGas)
-	return paymasterPostOpResult, nil
+	return paymasterPostOpResult
 }
 
 func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
@@ -472,29 +463,27 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	if executionResult.Failed() {
 		executionStatus = types.ReceiptStatusFailed
 	}
-	var postOpGasUsed uint64
-	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult, err := applyPaymasterPostOpFrame(st, aatx, vpr, executionResult)
-		if err != nil {
-			return nil, err
-		}
-		postOpGasUsed = paymasterPostOpResult.UsedGas
-		// PostOp failed, reverting execution changes
-		if paymasterPostOpResult.Err != nil {
-			statedb.RevertToSnapshot(beforeExecSnapshotId)
-			executionStatus = types.ReceiptStatusFailed
-		}
-	}
-
-	executionGasPenalty := (aatx.Gas + aatx.PostOpGas - executionResult.UsedGas + postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
+	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
 	gasUsed := vpr.ValidationUsedGas +
 		vpr.NonceManagerUsedGas +
 		vpr.DeploymentUsedGas +
 		vpr.PmValidationUsedGas +
 		executionResult.UsedGas +
-		postOpGasUsed +
 		executionGasPenalty
+
+	var postOpGasUsed uint64
+	if len(vpr.PaymasterContext) != 0 {
+		paymasterPostOpResult := applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed)
+		postOpGasUsed = paymasterPostOpResult.UsedGas
+		// PostOp failed, reverting execution changes
+		if paymasterPostOpResult.Err != nil {
+			statedb.RevertToSnapshot(beforeExecSnapshotId)
+			executionStatus = types.ReceiptStatusFailed
+		}
+		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
+		gasUsed += postOpGasUsed + postOpGasPenalty
+	}
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
@@ -527,15 +516,8 @@ func prepareAccountExecutionMessage(baseTx *types.Transaction) []byte {
 	return tx.ExecutionData
 }
 
-func preparePostOpMessage(vpr *ValidationPhaseResult) ([]byte, error) {
-	if len(vpr.PaymasterContext) == 0 {
-		return nil, nil
-	}
-	postOpData, err := abiEncodePostPaymasterTransaction(vpr.PaymasterContext)
-	if err != nil {
-		return nil, err
-	}
-	return postOpData, nil
+func preparePostOpMessage(vpr *ValidationPhaseResult, success bool, gasUsed uint64) []byte {
+	return abiEncodePostPaymasterTransaction(success, gasUsed, vpr.PaymasterContext)
 }
 
 func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) (*AcceptAccountData, error) {
@@ -551,7 +533,7 @@ func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) 
 	if epc.From.Cmp(*sender) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong account address")
 	}
-	return abiDecodeAcceptAccount(epc.Input)
+	return abiDecodeAcceptAccount(epc.Input, false)
 }
 
 func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Address) (*AcceptPaymasterData, error) {
@@ -568,7 +550,7 @@ func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Addr
 	if epc.From.Cmp(*paymaster) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong paymaster address")
 	}
-	apd, err := abiDecodeAcceptPaymaster(epc.Input)
+	apd, err := abiDecodeAcceptPaymaster(epc.Input, false)
 	if err != nil {
 		return nil, err
 	}

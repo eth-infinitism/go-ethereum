@@ -2,12 +2,15 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"math/big"
 	"strings"
 )
+
+var Rip7560Abi, err = abi.JSON(strings.NewReader(Rip7560AbiJson))
 
 type AcceptAccountData struct {
 	ValidAfter *big.Int
@@ -21,61 +24,73 @@ type AcceptPaymasterData struct {
 }
 
 func abiEncodeValidateTransaction(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {
-	jsonAbi, err := abi.JSON(strings.NewReader(ValidateTransactionAbi))
+
+	txAbiEncoding, err := tx.AbiEncode()
 	if err != nil {
 		return nil, err
 	}
-
-	txAbiEncoding, err := tx.AbiEncode()
-	validateTransactionData, err := jsonAbi.Pack("validateTransaction", big.NewInt(Rip7560AbiVersion), signingHash, txAbiEncoding)
+	validateTransactionData, err := Rip7560Abi.Pack("validateTransaction", big.NewInt(Rip7560AbiVersion), signingHash, txAbiEncoding)
 	return validateTransactionData, err
 }
 
 func abiEncodeValidatePaymasterTransaction(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {
-	jsonAbi, err := abi.JSON(strings.NewReader(ValidatePaymasterTransactionAbi))
 	txAbiEncoding, err := tx.AbiEncode()
-	data, err := jsonAbi.Pack("validatePaymasterTransaction", big.NewInt(Rip7560AbiVersion), signingHash, txAbiEncoding)
+	if err != nil {
+		return nil, err
+	}
+	data, err := Rip7560Abi.Pack("validatePaymasterTransaction", big.NewInt(Rip7560AbiVersion), signingHash, txAbiEncoding)
 	return data, err
 }
 
-func abiEncodePostPaymasterTransaction(context []byte) ([]byte, error) {
-	jsonAbi, err := abi.JSON(strings.NewReader(PostPaymasterTransactionAbi))
-	if err != nil {
-		return nil, err
-	}
+func abiEncodePostPaymasterTransaction(success bool, actualGasCost uint64, context []byte) []byte {
 	// TODO: pass actual gas cost parameter here!
-	postOpData, err := jsonAbi.Pack("postPaymasterTransaction", true, big.NewInt(0), context)
-	return postOpData, err
+	postOpData, err := Rip7560Abi.Pack("postPaymasterTransaction", success, big.NewInt(int64(actualGasCost)), context)
+	if err != nil {
+		panic("unable to encode postPaymasterTransaction")
+	}
+	return postOpData
 }
 
-func abiDecodeAcceptAccount(input []byte) (*AcceptAccountData, error) {
-	jsonAbi, err := abi.JSON(strings.NewReader(AcceptAccountAbi))
+func decodeMethodParamsToInterface(output interface{}, methodName string, input []byte) error {
+	m, err := Rip7560Abi.MethodById(input)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("unable to decode %s: %w", methodName, err)
 	}
-	methodSelector := new(big.Int).SetBytes(input[:4]).Uint64()
-	if methodSelector != AcceptAccountMethodSig {
-		if methodSelector == SigFailAccountMethodSig {
-			return nil, errors.New("account signature error")
-		}
-		return nil, errors.New("account validation did call the EntryPoint but not the 'acceptAccount' callback")
+	if methodName != m.Name {
+		return fmt.Errorf("unable to decode %s: got wrong method %s", methodName, m.Name)
 	}
+	params, err := m.Inputs.Unpack(input[4:])
+	if err != nil {
+		return fmt.Errorf("unable to decode %s: %w", methodName, err)
+	}
+	err = m.Inputs.Copy(output, params)
+	if err != nil {
+		return fmt.Errorf("unable to decode %s: %v", methodName, err)
+	}
+	return nil
+}
+
+func abiDecodeAcceptAccount(input []byte, allowSigFail bool) (*AcceptAccountData, error) {
 	acceptAccountData := &AcceptAccountData{}
-	err = jsonAbi.UnpackIntoInterface(acceptAccountData, "acceptAccount", input[4:])
-	return acceptAccountData, err
-}
-
-func abiDecodeAcceptPaymaster(input []byte) (*AcceptPaymasterData, error) {
-	jsonAbi, err := abi.JSON(strings.NewReader(AcceptPaymasterAbi))
+	err := decodeMethodParamsToInterface(acceptAccountData, "acceptAccount", input)
+	if err != nil && allowSigFail {
+		err = decodeMethodParamsToInterface(acceptAccountData, "sigFailAccount", input)
+	}
 	if err != nil {
 		return nil, err
 	}
-	methodSelector := new(big.Int).SetBytes(input[:4]).Uint64()
-	if methodSelector != AcceptPaymasterMethodSig {
-		return nil, errors.New("paymaster validation did call the EntryPoint but not the 'acceptPaymaster' callback")
-	}
+	return acceptAccountData, nil
+}
+
+func abiDecodeAcceptPaymaster(input []byte, allowSigFail bool) (*AcceptPaymasterData, error) {
 	acceptPaymasterData := &AcceptPaymasterData{}
-	err = jsonAbi.UnpackIntoInterface(acceptPaymasterData, "acceptPaymaster", input[4:])
+	err := decodeMethodParamsToInterface(acceptPaymasterData, "acceptPaymaster", input)
+	if err != nil && allowSigFail {
+		err = decodeMethodParamsToInterface(acceptPaymasterData, "sigFailPaymaster", input)
+	}
+	if err != nil {
+		return nil, err
+	}
 	if len(acceptPaymasterData.Context) > PaymasterMaxContextSize {
 		return nil, errors.New("paymaster return data: context too large")
 	}
