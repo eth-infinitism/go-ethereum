@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -436,70 +437,63 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
 
-func applyPaymasterPostOpFrame(vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool) (*ExecutionResult, error) {
+func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool) (*ExecutionResult, error) {
 	var paymasterPostOpResult *ExecutionResult
-	paymasterPostOpMsg, err := preparePostOpMessage(vpr, evm.ChainConfig(), executionResult)
+	paymasterPostOpMsg, err := preparePostOpMessage(vpr, executionResult)
 	if err != nil {
 		return nil, err
 	}
-	paymasterPostOpResult, err = ApplyMessage(evm, paymasterPostOpMsg, gp)
-	if err != nil {
-		return nil, err
-	}
+	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg.Data, aatx.PostOpGas)
 	return paymasterPostOpResult, nil
 }
 
 func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
 
-	beforeExecSnapshotId := statedb.Snapshot()
 	blockContext := NewEVMBlockContext(header, bc, author)
-	message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
-	txContext := NewEVMTxContext(message)
-	txContext.Origin = *vpr.Tx.Rip7560TransactionData().Sender
+	//message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+	aatx := vpr.Tx.Rip7560TransactionData()
+	sender := aatx.Sender
+	txContext := vm.TxContext{
+		Origin:   *sender,
+		GasPrice: vpr.EffectiveGasPrice.ToBig(),
+	}
+	txContext.Origin = *aatx.Sender
 	evm := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+	st := NewStateTransition(evm, nil, gp)
+	st.initialGas = math.MaxUint64
+	st.gasRemaining = math.MaxUint64
 
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx, evm.ChainConfig())
-	executionResult, err := ApplyMessage(evm, accountExecutionMsg, gp)
-	executionAL := statedb.AccessListCopy()
-	if err != nil {
-		return nil, err
+	beforeExecSnapshotId := statedb.Snapshot()
+	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg.Data, aatx.Gas)
+	executionStatus := types.ReceiptStatusSuccessful
+	if executionResult.Failed() {
+		executionStatus = types.ReceiptStatusFailed
 	}
-	beforePostSnapshotId := statedb.Snapshot()
-	var paymasterPostOpResult *ExecutionResult
+	var postOpGasUsed uint64
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult, err = applyPaymasterPostOpFrame(vpr, executionResult, evm, gp)
+		paymasterPostOpResult, err := applyPaymasterPostOpFrame(st, aatx, vpr, executionResult, evm, gp)
+		if err != nil {
+			return nil, err
+		}
+		postOpGasUsed = paymasterPostOpResult.UsedGas
+		// PostOp failed, reverting execution changes
+		if paymasterPostOpResult.Err != nil {
+			statedb.RevertToSnapshot(beforeExecSnapshotId)
+			executionStatus = types.ReceiptStatusFailed
+		}
 	}
 
-	// PostOp failed, reverting execution changes
-	if paymasterPostOpResult != nil && paymasterPostOpResult.Err != nil {
-		statedb.RevertToSnapshot(beforePostSnapshotId)
-		// Workaround a bug in snapshot/revert - can't be called after multiple ApplyMessage() calls
-		statedb.SetAccessList(executionAL)
-		statedb.RevertToSnapshot(beforeExecSnapshotId)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	gasUsed :=
-		vpr.ValidationUsedGas +
-			vpr.NonceManagerUsedGas +
-			vpr.DeploymentUsedGas +
-			vpr.PmValidationUsedGas +
-			executionResult.UsedGas
-	if paymasterPostOpResult != nil {
-		gasUsed +=
-			paymasterPostOpResult.UsedGas
-	}
+	gasUsed := vpr.ValidationUsedGas +
+		vpr.NonceManagerUsedGas +
+		vpr.DeploymentUsedGas +
+		vpr.PmValidationUsedGas +
+		executionResult.UsedGas +
+		postOpGasUsed
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
-	if executionResult.Failed() || (paymasterPostOpResult != nil && paymasterPostOpResult.Failed()) {
-		receipt.Status = types.ReceiptStatusFailed
-	} else {
-		receipt.Status = types.ReceiptStatusSuccessful
-	}
+	receipt.Status = executionStatus
 
 	refundPayer(vpr, statedb, gasUsed)
 
@@ -509,7 +503,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
-	return receipt, err
+	return receipt, nil
 }
 
 func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, deploymentUsedGas uint64) (*Message, error) {
@@ -573,7 +567,7 @@ func prepareAccountExecutionMessage(baseTx *types.Transaction, config *params.Ch
 	}
 }
 
-func preparePostOpMessage(vpr *ValidationPhaseResult, chainConfig *params.ChainConfig, executionResult *ExecutionResult) (*Message, error) {
+func preparePostOpMessage(vpr *ValidationPhaseResult, executionResult *ExecutionResult) (*Message, error) {
 	if len(vpr.PaymasterContext) == 0 {
 		return nil, nil
 	}
