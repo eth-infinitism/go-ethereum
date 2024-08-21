@@ -209,19 +209,36 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 // CheckNonceRip7560 pre-checks nonce of RIP-7560 transaction that don't rely on RIP-7712 two-dimensional nonces.
 // (standard preCheck function check both nonce and no-code of account)
 // Make sure this transaction's nonce is correct.
-func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB) error {
-	stNonce := st.GetNonce(*tx.Sender)
-	if msgNonce := tx.Nonce; stNonce < msgNonce {
-		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
-			tx.Sender.Hex(), msgNonce, stNonce)
-	} else if stNonce > msgNonce {
-		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooLow,
-			tx.Sender.Hex(), msgNonce, stNonce)
-	} else if stNonce+1 < stNonce {
-		return fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
-			tx.Sender.Hex(), stNonce)
+func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
+	if tx.IsRip7712Nonce() {
+		if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
+			return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil)
+		}
+		nonceManagerMessage := prepareNonceManagerMessage(tx)
+		resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessage.Data, st.gasRemaining)
+		if resultNonceManager.Failed() {
+			return 0, newValidationPhaseError(
+				fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err),
+				resultNonceManager.ReturnData,
+				ptr("NonceManager"),
+			)
+		}
+		return resultNonceManager.UsedGas, nil
+	} else {
+
+		stNonce := st.state.GetNonce(*tx.Sender)
+		if msgNonce := tx.Nonce; stNonce < msgNonce {
+			return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
+				tx.Sender.Hex(), msgNonce, stNonce)
+		} else if stNonce > msgNonce {
+			return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooLow,
+				tx.Sender.Hex(), msgNonce, stNonce)
+		} else if stNonce+1 < stNonce {
+			return 0, fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
+				tx.Sender.Hex(), stNonce)
+		}
+		return 0, nil
 	}
-	return nil
 }
 
 // call a frame in the context of this state transition.
@@ -293,27 +310,9 @@ func ApplyRip7560ValidationPhases(
 	st.gasRemaining = gasLimit
 
 	/*** Nonce Manager Frame ***/
-	var nonceManagerUsedGas uint64
-	if aatx.IsRip7712Nonce() {
-		if !chainConfig.IsRIP7712(header.Number) {
-			return nil, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil)
-		}
-		nonceManagerMessage := prepareNonceManagerMessage(tx)
-		resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessage.Data, st.gasRemaining)
-		if resultNonceManager.Failed() {
-			return nil, newValidationPhaseError(
-				fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err),
-				resultNonceManager.ReturnData,
-				ptr("NonceManager"),
-			)
-		}
-		nonceManagerUsedGas = resultNonceManager.UsedGas
-	} else {
-		err = CheckNonceRip7560(aatx, statedb)
-		if err != nil {
-			return nil, err
-		}
-
+	nonceManagerUsedGas, err := CheckNonceRip7560(st, aatx)
+	if err != nil {
+		return nil, err
 	}
 
 	/*** Deployer Frame ***/
@@ -385,20 +384,21 @@ func ApplyRip7560ValidationPhases(
 		return nil, err
 	}
 
-	vpr := &ValidationPhaseResult{}
-	vpr.Tx = tx
-	vpr.TxHash = tx.Hash()
-	vpr.PreCharge = preCharge
-	vpr.EffectiveGasPrice = gasPriceUint256
-	vpr.PaymasterContext = paymasterContext
-	vpr.DeploymentUsedGas = deploymentUsedGas
-	vpr.NonceManagerUsedGas = nonceManagerUsedGas
-	vpr.ValidationUsedGas = resultAccountValidation.UsedGas
-	vpr.PmValidationUsedGas = pmValidationUsedGas
-	vpr.SenderValidAfter = aad.ValidAfter.Uint64()
-	vpr.SenderValidUntil = aad.ValidUntil.Uint64()
-	vpr.PmValidAfter = pmValidAfter
-	vpr.PmValidUntil = pmValidUntil
+	vpr := &ValidationPhaseResult{
+		Tx:                  tx,
+		TxHash:              tx.Hash(),
+		PreCharge:           preCharge,
+		EffectiveGasPrice:   gasPriceUint256,
+		PaymasterContext:    paymasterContext,
+		DeploymentUsedGas:   deploymentUsedGas,
+		NonceManagerUsedGas: nonceManagerUsedGas,
+		ValidationUsedGas:   resultAccountValidation.UsedGas,
+		PmValidationUsedGas: pmValidationUsedGas,
+		SenderValidAfter:    aad.ValidAfter.Uint64(),
+		SenderValidUntil:    aad.ValidUntil.Uint64(),
+		PmValidAfter:        pmValidAfter,
+		PmValidUntil:        pmValidUntil,
+	}
 	statedb.Finalise(true)
 
 	return vpr, nil
