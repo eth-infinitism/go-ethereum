@@ -19,6 +19,9 @@ import (
 var AA_ENTRY_POINT = common.HexToAddress("0x0000000000000000000000000000000000007560")
 var AA_SENDER_CREATOR = common.HexToAddress("0x00000000000000000000000000000000ffff7560")
 
+// always pay 10% of unused execution gas
+const AA_GAS_PENALTY_PCT = 10
+
 type EntryPointCall struct {
 	OnEnterSuper tracing.EnterHook
 	Input        []byte
@@ -215,8 +218,8 @@ func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionT
 		if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
 			return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil)
 		}
-		nonceManagerMessage := prepareNonceManagerMessage(tx)
-		resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessage.Data, st.gasRemaining)
+		nonceManagerMessageData := prepareNonceManagerMessage(tx)
+		resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessageData, st.gasRemaining)
 		if resultNonceManager.Failed() {
 			return 0, newValidationPhaseError(
 				fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err),
@@ -353,11 +356,11 @@ func ApplyRip7560ValidationPhases(
 	/*** Account Validation Frame ***/
 	signer := types.MakeSigner(chainConfig, header.Number, header.Time)
 	signingHash := signer.Hash(tx)
-	accountValidationMsg, err := prepareAccountValidationMessage(tx, chainConfig, signingHash, deploymentUsedGas)
+	accountValidationMsg, err := prepareAccountValidationMessage(aatx, signingHash)
 	if err != nil {
 		return nil, newValidationPhaseError(err, nil, nil)
 	}
-	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg.Data, aatx.ValidationGasLimit-deploymentUsedGas)
+	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg, aatx.ValidationGasLimit-deploymentUsedGas)
 	if resultAccountValidation.Failed() {
 		return nil, newValidationPhaseError(
 			resultAccountValidation.Err,
@@ -380,7 +383,7 @@ func ApplyRip7560ValidationPhases(
 		return nil, newValidationPhaseError(err, nil, nil)
 	}
 
-	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, chainConfig, signingHash, header)
+	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, signingHash, header)
 	if err != nil {
 		return nil, err
 	}
@@ -405,18 +408,18 @@ func ApplyRip7560ValidationPhases(
 	return vpr, nil
 }
 
-func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
+func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	aatx := tx.Rip7560TransactionData()
 	var pmValidationUsedGas uint64
-	paymasterMsg, err := preparePaymasterValidationMessage(aatx, chainConfig, signingHash)
+	paymasterMsg, err := preparePaymasterValidationMessage(aatx, signingHash)
 	if err != nil {
 		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil)
 	}
 	if paymasterMsg == nil {
 		return nil, 0, 0, 0, nil
 	}
-	resultPm := CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterMsg.Data, aatx.PaymasterValidationGasLimit)
+	resultPm := CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterMsg, aatx.PaymasterValidationGasLimit)
 
 	if resultPm.Failed() {
 		return nil, 0, 0, 0, newValidationPhaseError(
@@ -437,20 +440,19 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
 
-func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, executionResult *ExecutionResult, evm *vm.EVM, gp *GasPool) (*ExecutionResult, error) {
+func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, executionResult *ExecutionResult) (*ExecutionResult, error) {
 	var paymasterPostOpResult *ExecutionResult
-	paymasterPostOpMsg, err := preparePostOpMessage(vpr, executionResult)
+	paymasterPostOpMsg, err := preparePostOpMessage(vpr)
 	if err != nil {
 		return nil, err
 	}
-	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg.Data, aatx.PostOpGas)
+	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg, aatx.PostOpGas)
 	return paymasterPostOpResult, nil
 }
 
 func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
 
 	blockContext := NewEVMBlockContext(header, bc, author)
-	//message, err := TransactionToMessage(vpr.Tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
 	aatx := vpr.Tx.Rip7560TransactionData()
 	sender := aatx.Sender
 	txContext := vm.TxContext{
@@ -463,16 +465,16 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	st.initialGas = math.MaxUint64
 	st.gasRemaining = math.MaxUint64
 
-	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx, evm.ChainConfig())
+	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx)
 	beforeExecSnapshotId := statedb.Snapshot()
-	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg.Data, aatx.Gas)
+	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg, aatx.Gas)
 	executionStatus := types.ReceiptStatusSuccessful
 	if executionResult.Failed() {
 		executionStatus = types.ReceiptStatusFailed
 	}
 	var postOpGasUsed uint64
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult, err := applyPaymasterPostOpFrame(st, aatx, vpr, executionResult, evm, gp)
+		paymasterPostOpResult, err := applyPaymasterPostOpFrame(st, aatx, vpr, executionResult)
 		if err != nil {
 			return nil, err
 		}
@@ -484,12 +486,15 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		}
 	}
 
+	executionGasPenalty := (aatx.Gas + aatx.PostOpGas - executionResult.UsedGas + postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
+
 	gasUsed := vpr.ValidationUsedGas +
 		vpr.NonceManagerUsedGas +
 		vpr.DeploymentUsedGas +
 		vpr.PmValidationUsedGas +
 		executionResult.UsedGas +
-		postOpGasUsed
+		postOpGasUsed +
+		executionGasPenalty
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
@@ -506,89 +511,31 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	return receipt, nil
 }
 
-func prepareAccountValidationMessage(baseTx *types.Transaction, chainConfig *params.ChainConfig, signingHash common.Hash, deploymentUsedGas uint64) (*Message, error) {
-	tx := baseTx.Rip7560TransactionData()
-	data, err := abiEncodeValidateTransaction(tx, signingHash)
-	if err != nil {
-		return nil, err
-	}
-	return &Message{
-		From:              AA_ENTRY_POINT,
-		To:                tx.Sender,
-		Value:             big.NewInt(0),
-		GasLimit:          tx.ValidationGasLimit - deploymentUsedGas,
-		GasPrice:          tx.GasFeeCap,
-		GasFeeCap:         tx.GasFeeCap,
-		GasTipCap:         tx.GasTipCap,
-		Data:              data,
-		AccessList:        nil,
-		SkipAccountChecks: true,
-		IsRip7560Frame:    true,
-	}, nil
+func prepareAccountValidationMessage(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {
+	return abiEncodeValidateTransaction(tx, signingHash)
 }
 
-func preparePaymasterValidationMessage(tx *types.Rip7560AccountAbstractionTx, config *params.ChainConfig, signingHash common.Hash) (*Message, error) {
+func preparePaymasterValidationMessage(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {
 	if tx.Paymaster == nil || tx.Paymaster.Cmp(common.Address{}) == 0 {
 		return nil, nil
 	}
-	data, err := abiEncodeValidatePaymasterTransaction(tx, signingHash)
-	if err != nil {
-		return nil, err
-	}
-	return &Message{
-		From:              AA_ENTRY_POINT,
-		To:                tx.Paymaster,
-		Value:             big.NewInt(0),
-		GasLimit:          tx.PaymasterValidationGasLimit,
-		GasPrice:          tx.GasFeeCap,
-		GasFeeCap:         tx.GasFeeCap,
-		GasTipCap:         tx.GasTipCap,
-		Data:              data,
-		AccessList:        nil,
-		SkipAccountChecks: true,
-		IsRip7560Frame:    true,
-	}, nil
+	return abiEncodeValidatePaymasterTransaction(tx, signingHash)
 }
 
-func prepareAccountExecutionMessage(baseTx *types.Transaction, config *params.ChainConfig) *Message {
+func prepareAccountExecutionMessage(baseTx *types.Transaction) []byte {
 	tx := baseTx.Rip7560TransactionData()
-	return &Message{
-		From:              AA_ENTRY_POINT,
-		To:                tx.Sender,
-		Value:             big.NewInt(0),
-		GasLimit:          tx.Gas,
-		GasPrice:          tx.GasFeeCap,
-		GasFeeCap:         tx.GasFeeCap,
-		GasTipCap:         tx.GasTipCap,
-		Data:              tx.ExecutionData,
-		AccessList:        nil,
-		SkipAccountChecks: true,
-		IsRip7560Frame:    true,
-	}
+	return tx.ExecutionData
 }
 
-func preparePostOpMessage(vpr *ValidationPhaseResult, executionResult *ExecutionResult) (*Message, error) {
+func preparePostOpMessage(vpr *ValidationPhaseResult) ([]byte, error) {
 	if len(vpr.PaymasterContext) == 0 {
 		return nil, nil
 	}
-	tx := vpr.Tx.Rip7560TransactionData()
 	postOpData, err := abiEncodePostPaymasterTransaction(vpr.PaymasterContext)
 	if err != nil {
 		return nil, err
 	}
-	return &Message{
-		From:              AA_ENTRY_POINT,
-		To:                tx.Paymaster,
-		Value:             big.NewInt(0),
-		GasLimit:          tx.PaymasterValidationGasLimit - executionResult.UsedGas,
-		GasPrice:          tx.GasFeeCap,
-		GasFeeCap:         tx.GasFeeCap,
-		GasTipCap:         tx.GasTipCap,
-		Data:              postOpData,
-		AccessList:        tx.AccessList,
-		SkipAccountChecks: true,
-		IsRip7560Frame:    true,
-	}, nil
+	return postOpData, nil
 }
 
 func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) (*AcceptAccountData, error) {
