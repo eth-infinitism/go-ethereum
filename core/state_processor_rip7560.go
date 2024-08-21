@@ -317,7 +317,7 @@ func ApplyRip7560ValidationPhases(
 	var deploymentUsedGas uint64
 	if aatx.Deployer != nil {
 		if statedb.GetCodeSize(*sender) != 0 {
-			return nil, fmt.Errorf("account deployment failed: %v", err)
+			return nil, fmt.Errorf("account deployment failed: already deployed")
 		}
 		resultDeployer := CallFrame(st, &AA_SENDER_CREATOR, aatx.Deployer, aatx.DeployerData, aatx.ValidationGasLimit)
 		if resultDeployer.Failed() {
@@ -330,7 +330,7 @@ func ApplyRip7560ValidationPhases(
 		if statedb.GetCodeSize(*sender) == 0 {
 			return nil, newValidationPhaseError(
 				fmt.Errorf(
-					"account was not deployed by a factory, account:%s factory%s",
+					"sender not deployed by factory, sender:%s factory:%s",
 					sender.String(), aatx.Deployer.String(),
 				), nil, nil)
 		}
@@ -527,9 +527,6 @@ func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) 
 	if epc.Input == nil {
 		return nil, errors.New("account validation did not call the EntryPoint 'acceptAccount' callback")
 	}
-	if len(epc.Input) != 68 {
-		return nil, errors.New("invalid account return data length")
-	}
 	if epc.From.Cmp(*sender) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong account address")
 	}
@@ -544,9 +541,6 @@ func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Addr
 		return nil, errors.New("paymaster validation did not call the EntryPoint 'acceptPaymaster' callback")
 	}
 
-	if len(epc.Input) < 100 {
-		return nil, errors.New("invalid paymaster callback data length")
-	}
 	if epc.From.Cmp(*paymaster) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong paymaster address")
 	}
