@@ -149,7 +149,6 @@ type Message struct {
 	// account nonce in state. It also disables checking that the sender is an EOA.
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
-	IsRip7560Frame    bool
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -361,15 +360,6 @@ func (st *StateTransition) preCheck() error {
 			}
 		}
 	}
-
-	// no need to "buy gus" for individual frames
-	// there is a single shared gas pre-charge
-	if st.msg.IsRip7560Frame {
-		st.gasRemaining += st.msg.GasLimit
-		st.initialGas = st.msg.GasLimit
-		return nil
-	}
-
 	return st.buyGas()
 }
 
@@ -407,7 +397,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, msg.IsRip7560Frame)
+	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai)
 	if err != nil {
 		return nil, err
 	}
@@ -454,9 +444,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret, _, st.gasRemaining, vmerr = st.evm.Create(sender, msg.Data, st.gasRemaining, value)
 	} else {
 		// Increment the nonce for the next transaction
-		if msg.From != AA_SENDER_CREATOR && msg.From != AA_ENTRY_POINT {
-			st.state.SetNonce(msg.From, st.state.GetNonce(sender.Address())+1)
-		}
+		st.state.SetNonce(msg.From, st.state.GetNonce(sender.Address())+1)
 		ret, st.gasRemaining, vmerr = st.evm.Call(sender, st.to(), msg.Data, st.gasRemaining, value)
 	}
 
