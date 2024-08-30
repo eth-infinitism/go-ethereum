@@ -81,3 +81,31 @@ func abiDecodeAcceptPaymaster(input []byte) (*AcceptPaymasterData, error) {
 	}
 	return acceptPaymasterData, err
 }
+
+func abiEncodeRIP7560TransactionEvent() (topics []common.Hash, data []byte, error error) {
+	jsonAbi, error := abi.JSON(strings.NewReader(RIP7560TransactionEventAbi))
+	if error != nil {
+		return nil, nil, error
+	}
+	id := jsonAbi.Events["RIP7560TransactionEvent"].ID
+	data, error = jsonAbi.Events["RIP7560TransactionEvent"].Inputs.Pack(
+		//address indexed sender,
+		common.Address{},
+		//address indexed paymaster,
+		common.Address{},
+		//address indexed deployer,
+		common.Address{},
+		//uint256 nonce,
+		big.NewInt(0),
+		//bool success,
+		true,
+		//uint256 actualGasCost,
+		big.NewInt(0),
+		//uint256 actualGasUsed
+		big.NewInt(0),
+	)
+	if error != nil {
+		return nil, nil, error
+	}
+	return []common.Hash{id, {}, {}, {}}, data, nil
+}

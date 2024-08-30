@@ -439,6 +439,12 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	if err != nil {
 		return nil, err
 	}
+
+	err = injectRIP7560TransactionEvent(header, statedb)
+	if err != nil {
+		return nil, err
+	}
+
 	beforePostSnapshotId := statedb.Snapshot()
 	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
@@ -485,6 +491,23 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
 	return receipt, err
+}
+
+func injectRIP7560TransactionEvent(header *types.Header, statedb *state.StateDB) error {
+	topics, data, err := abiEncodeRIP7560TransactionEvent()
+	if err != nil {
+		return err
+	}
+	transactionLog := &types.Log{
+		Address: AA_ENTRY_POINT,
+		Topics:  topics,
+		Data:    data,
+		// This is a non-consensus field, but assigned here because
+		// core/state doesn't know the current block number.
+		BlockNumber: header.Number.Uint64(),
+	}
+	statedb.AddLog(transactionLog)
+	return nil
 }
 
 func prepareDeployerMessage(baseTx *types.Transaction, config *params.ChainConfig) *Message {
