@@ -209,34 +209,36 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 // Make sure this transaction's nonce is correct.
 func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
 	if tx.IsRip7712Nonce() {
-		if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
-			return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil)
-		}
-		nonceManagerMessageData := prepareNonceManagerMessage(tx)
-		resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessageData, st.gasRemaining)
-		if resultNonceManager.Failed() {
-			return 0, newValidationPhaseError(
-				fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err),
-				resultNonceManager.ReturnData,
-				ptr("NonceManager"),
-			)
-		}
-		return resultNonceManager.UsedGas, nil
-	} else {
-
-		stNonce := st.state.GetNonce(*tx.Sender)
-		if msgNonce := tx.Nonce; stNonce < msgNonce {
-			return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
-				tx.Sender.Hex(), msgNonce, stNonce)
-		} else if stNonce > msgNonce {
-			return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooLow,
-				tx.Sender.Hex(), msgNonce, stNonce)
-		} else if stNonce+1 < stNonce {
-			return 0, fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
-				tx.Sender.Hex(), stNonce)
-		}
-		return 0, nil
+		return performNonceCheckFrameRip7712(st, tx)
 	}
+	stNonce := st.state.GetNonce(*tx.Sender)
+	if msgNonce := tx.Nonce; stNonce < msgNonce {
+		return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
+			tx.Sender.Hex(), msgNonce, stNonce)
+	} else if stNonce > msgNonce {
+		return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooLow,
+			tx.Sender.Hex(), msgNonce, stNonce)
+	} else if stNonce+1 < stNonce {
+		return 0, fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
+			tx.Sender.Hex(), stNonce)
+	}
+	return 0, nil
+}
+
+func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
+	if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
+		return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil)
+	}
+	nonceManagerMessageData := prepareNonceManagerMessage(tx)
+	resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessageData, st.gasRemaining)
+	if resultNonceManager.Failed() {
+		return 0, newValidationPhaseError(
+			fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err),
+			resultNonceManager.ReturnData,
+			ptr("NonceManager"),
+		)
+	}
+	return resultNonceManager.UsedGas, nil
 }
 
 // call a frame in the context of this state transition.
