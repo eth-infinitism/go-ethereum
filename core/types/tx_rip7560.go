@@ -18,8 +18,10 @@ package types
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"math/big"
 )
@@ -109,6 +111,50 @@ func (tx *Rip7560AccountAbstractionTx) value() *big.Int        { return big.NewI
 func (tx *Rip7560AccountAbstractionTx) nonce() uint64          { return tx.Nonce }
 func (tx *Rip7560AccountAbstractionTx) to() *common.Address    { return nil }
 
+func (tx *Rip7560AccountAbstractionTx) GasPayer() *common.Address {
+	if tx.Paymaster != nil && tx.Paymaster.Cmp(common.Address{}) != 0 {
+		return tx.Paymaster
+	}
+	return tx.Sender
+}
+
+func sumGas(vals ...uint64) (uint64, error) {
+	var sum uint64
+	for _, val := range vals {
+		if val > 1<<62 {
+			return 0, fmt.Errorf("invalid gas values")
+		}
+		sum += val
+	}
+	return sum, nil
+}
+
+func callDataCost(data []byte) uint64 {
+	z := uint64(0)
+	for i := 0; i < len(data); i++ {
+		if data[i] == 0 {
+			z++
+		}
+	}
+	nz := uint64(len(data)) - z
+	return nz*params.TxDataNonZeroGasEIP2028 + z*params.TxDataZeroGas
+}
+
+func (tx *Rip7560AccountAbstractionTx) CallDataGasCost() (uint64, error) {
+	return sumGas(callDataCost(tx.DeployerData), callDataCost(tx.ExecutionData), callDataCost(tx.PaymasterData))
+}
+
+func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
+	callDataGasCost, err := tx.CallDataGasCost()
+	if err != nil {
+		return 0, err
+	}
+	return sumGas(
+		tx.Gas, tx.ValidationGasLimit, tx.PaymasterValidationGasLimit, tx.PostOpGas,
+		callDataGasCost,
+	)
+}
+
 // IsRip7712Nonce returns true if the transaction uses an RIP-7712 two-dimensional nonce
 func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
 	return tx.NonceKey != nil && tx.NonceKey.Cmp(big.NewInt(0)) == 1
@@ -134,16 +180,16 @@ func (tx *Rip7560AccountAbstractionTx) setSignatureValues(chainID, v, r, s *big.
 }
 
 // encode the subtype byte and the payload-bearing bytes of the RIP-7560 transaction
-func (t *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
+func (tx *Rip7560AccountAbstractionTx) encode(b *bytes.Buffer) error {
 	zeroAddress := common.Address{}
-	tx := t.copy().(*Rip7560AccountAbstractionTx)
-	if tx.Paymaster != nil && zeroAddress.Cmp(*tx.Paymaster) == 0 {
-		tx.Paymaster = nil
+	txCopy := tx.copy().(*Rip7560AccountAbstractionTx)
+	if txCopy.Paymaster != nil && zeroAddress.Cmp(*txCopy.Paymaster) == 0 {
+		txCopy.Paymaster = nil
 	}
-	if tx.Deployer != nil && zeroAddress.Cmp(*tx.Deployer) == 0 {
-		tx.Deployer = nil
+	if txCopy.Deployer != nil && zeroAddress.Cmp(*txCopy.Deployer) == 0 {
+		txCopy.Deployer = nil
 	}
-	return rlp.Encode(b, tx)
+	return rlp.Encode(b, txCopy)
 }
 
 // decode the payload-bearing bytes of the encoded RIP-7560 transaction payload
