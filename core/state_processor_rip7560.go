@@ -145,7 +145,7 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 	return validatedTransactions, receipts, allLogs, nil
 }
 
-func sumGas(vals []uint64) (uint64, error) {
+func sumGas(vals ...uint64) (uint64, error) {
 	var sum uint64
 	for _, val := range vals {
 		if val > 1<<62 {
@@ -170,10 +170,10 @@ func callDataCost(data []byte) uint64 {
 // todo: move to a suitable interface, whatever that is
 // todo 2: maybe handle the "shared gas pool" situation instead of just overriding it completely?
 func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB, gasPrice *uint256.Int) (uint64, *uint256.Int, error) {
-	gasLimit, err := sumGas([]uint64{
+	gasLimit, err := sumGas(
 		st.Gas, st.ValidationGasLimit, st.PaymasterValidationGasLimit, st.PostOpGas,
 		callDataCost(st.DeployerData), callDataCost(st.ExecutionData), callDataCost(st.PaymasterData),
-	})
+	)
 	if err != nil {
 		return 0, nil, err
 	}
