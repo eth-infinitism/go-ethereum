@@ -204,9 +204,9 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 	state.AddBalance(*chargeFrom, refund, tracing.BalanceIncreaseGasReturn)
 }
 
-// CheckNonceRip7560 pre-checks nonce of RIP-7560 transaction that don't rely on RIP-7712 two-dimensional nonces.
-// (standard preCheck function check both nonce and no-code of account)
-// Make sure this transaction's nonce is correct.
+// CheckNonceRip7560 checks nonce of RIP-7560 transactions.
+// Transactions that don't rely on RIP-7712 two-dimensional nonces are checked statically.
+// Transactions using RIP-7712 two-dimensional nonces execute an extra validation frame on-chain.
 func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
 	if tx.IsRip7712Nonce() {
 		return performNonceCheckFrameRip7712(st, tx)
