@@ -30,6 +30,7 @@ type ValidationPhaseResult struct {
 	PaymasterContext    []byte
 	PreCharge           *uint256.Int
 	EffectiveGasPrice   *uint256.Int
+	CallDataUsedGas     uint64
 	NonceManagerUsedGas uint64
 	DeploymentUsedGas   uint64
 	ValidationUsedGas   uint64
@@ -145,35 +146,8 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 	return validatedTransactions, receipts, allLogs, nil
 }
 
-func sumGas(vals ...uint64) (uint64, error) {
-	var sum uint64
-	for _, val := range vals {
-		if val > 1<<62 {
-			return 0, fmt.Errorf("invalid gas values")
-		}
-		sum += val
-	}
-	return sum, nil
-}
-
-func callDataCost(data []byte) uint64 {
-	z := uint64(0)
-	for i := 0; i < len(data); i++ {
-		if data[i] == 0 {
-			z++
-		}
-	}
-	nz := uint64(len(data)) - z
-	return nz*params.TxDataNonZeroGasEIP2028 + z*params.TxDataZeroGas
-}
-
-// todo: move to a suitable interface, whatever that is
-// todo 2: maybe handle the "shared gas pool" situation instead of just overriding it completely?
 func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB, gasPrice *uint256.Int) (uint64, *uint256.Int, error) {
-	gasLimit, err := sumGas(
-		st.Gas, st.ValidationGasLimit, st.PaymasterValidationGasLimit, st.PostOpGas,
-		callDataCost(st.DeployerData), callDataCost(st.ExecutionData), callDataCost(st.PaymasterData),
-	)
+	gasLimit, err := st.TotalGasLimit()
 	if err != nil {
 		return 0, nil, err
 	}
@@ -384,12 +358,17 @@ func ApplyRip7560ValidationPhases(
 		return nil, err
 	}
 
+	callDataUsedGas, err := aatx.CallDataGasCost()
+	if err != nil {
+		return nil, err
+	}
 	vpr := &ValidationPhaseResult{
 		Tx:                  tx,
 		TxHash:              tx.Hash(),
 		PreCharge:           preCharge,
 		EffectiveGasPrice:   gasPriceUint256,
 		PaymasterContext:    paymasterContext,
+		CallDataUsedGas:     callDataUsedGas,
 		DeploymentUsedGas:   deploymentUsedGas,
 		NonceManagerUsedGas: nonceManagerUsedGas,
 		ValidationUsedGas:   resultAccountValidation.UsedGas,
@@ -471,6 +450,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		vpr.NonceManagerUsedGas +
 		vpr.DeploymentUsedGas +
 		vpr.PmValidationUsedGas +
+		vpr.CallDataUsedGas +
 		executionResult.UsedGas +
 		executionGasPenalty
 
