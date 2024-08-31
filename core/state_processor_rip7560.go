@@ -446,12 +446,6 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
-  
-	err = injectRIP7560TransactionEvent(header, statedb)
-	if err != nil {
-		return nil, err
-	}
-  
 	gasUsed := vpr.ValidationUsedGas +
 		vpr.NonceManagerUsedGas +
 		vpr.DeploymentUsedGas +
@@ -459,6 +453,11 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		vpr.CallDataUsedGas +
 		executionResult.UsedGas +
 		executionGasPenalty
+
+	err = injectRIP7560TransactionEvent(aatx, executionStatus == types.ReceiptStatusSuccessful, big.NewInt(0), gasUsed, header, statedb)
+	if err != nil {
+		return nil, err
+	}
 
 	var postOpGasUsed uint64
 	if len(vpr.PaymasterContext) != 0 {
@@ -488,8 +487,15 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	return receipt, nil
 }
 
-func injectRIP7560TransactionEvent(header *types.Header, statedb *state.StateDB) error {
-	topics, data, err := abiEncodeRIP7560TransactionEvent()
+func injectRIP7560TransactionEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	success bool,
+	actualGasCost *big.Int,
+	actualGasUsed uint64,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionEvent(aatx, success, actualGasCost, actualGasUsed)
 	if err != nil {
 		return err
 	}
@@ -503,26 +509,6 @@ func injectRIP7560TransactionEvent(header *types.Header, statedb *state.StateDB)
 	}
 	statedb.AddLog(transactionLog)
 	return nil
-}
-
-func prepareDeployerMessage(baseTx *types.Transaction, config *params.ChainConfig) *Message {
-	tx := baseTx.Rip7560TransactionData()
-	if tx.Deployer == nil || tx.Deployer.Cmp(common.Address{}) == 0 {
-		return nil
-	}
-	return &Message{
-		From:              AA_SENDER_CREATOR,
-		To:                tx.Deployer,
-		Value:             big.NewInt(0),
-		GasLimit:          tx.ValidationGasLimit,
-		GasPrice:          tx.GasFeeCap,
-		GasFeeCap:         tx.GasFeeCap,
-		GasTipCap:         tx.GasTipCap,
-		Data:              tx.DeployerData,
-		AccessList:        nil,
-		SkipAccountChecks: true,
-		IsRip7560Frame:    true,
-	}
 }
 
 func prepareAccountValidationMessage(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {

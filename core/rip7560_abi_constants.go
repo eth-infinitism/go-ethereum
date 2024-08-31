@@ -8,7 +8,7 @@ const Rip7560AbiVersion = 0
 var AA_ENTRY_POINT = common.HexToAddress("0x0000000000000000000000000000000000007560")
 var AA_SENDER_CREATOR = common.HexToAddress("0x00000000000000000000000000000000ffff7560")
 
-// always pay 10% of unused execution gas
+// AA_GAS_PENALTY_PCT is always applied to unused execution and postOp gas limits
 const AA_GAS_PENALTY_PCT = 10
 
 const Rip7560AbiJson = `
@@ -73,12 +73,8 @@ const Rip7560AbiJson = `
 			{"name": "validUntil","type": "uint256"},
 			{"name": "context","type": "bytes"}
 		]
-	}
-]`
-
-const RIP7560TransactionEventAbi = `
-[
-{
+	},
+	{
       "anonymous": false,
       "inputs": [
         {
