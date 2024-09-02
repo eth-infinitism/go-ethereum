@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var Rip7560Abi, err = abi.JSON(strings.NewReader(Rip7560AbiJson))
+var Rip7560Abi, _ = abi.JSON(strings.NewReader(Rip7560AbiJson))
 
 type AcceptAccountData struct {
 	ValidAfter *big.Int

@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
+	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -24,21 +25,23 @@ type EntryPointCall struct {
 }
 
 type ValidationPhaseResult struct {
-	TxIndex             int
-	Tx                  *types.Transaction
-	TxHash              common.Hash
-	PaymasterContext    []byte
-	PreCharge           *uint256.Int
-	EffectiveGasPrice   *uint256.Int
-	CallDataUsedGas     uint64
-	NonceManagerUsedGas uint64
-	DeploymentUsedGas   uint64
-	ValidationUsedGas   uint64
-	PmValidationUsedGas uint64
-	SenderValidAfter    uint64
-	SenderValidUntil    uint64
-	PmValidAfter        uint64
-	PmValidUntil        uint64
+	TxIndex                int
+	Tx                     *types.Transaction
+	TxHash                 common.Hash
+	PaymasterContext       []byte
+	PreCharge              *uint256.Int
+	EffectiveGasPrice      *uint256.Int
+	TotalValidationGasUsed uint64
+	ValidationRefund       uint64
+	CallDataUsedGas        uint64
+	NonceManagerUsedGas    uint64
+	DeploymentUsedGas      uint64
+	ValidationUsedGas      uint64
+	PmValidationUsedGas    uint64
+	SenderValidAfter       uint64
+	SenderValidUntil       uint64
+	PmValidAfter           uint64
+	PmValidUntil           uint64
 }
 
 // ValidationPhaseError is an API error that encompasses an EVM revert with JSON error
@@ -119,9 +122,9 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 
 		statedb.SetTxContext(tx.Hash(), index+i)
 
-		vpr, vpe := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
-		if vpe != nil {
-			return nil, nil, nil, vpe
+		vpr, err := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
+		if err != nil {
+			return nil, nil, nil, err
 		}
 		validationPhaseResults = append(validationPhaseResults, vpr)
 		validatedTransactions = append(validatedTransactions, tx)
@@ -155,11 +158,10 @@ func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.St
 	//TODO: check gasLimit against block gasPool
 	preCharge := new(uint256.Int).SetUint64(gasLimit)
 	preCharge = preCharge.Mul(preCharge, gasPrice)
-	balanceCheck := new(uint256.Int).Set(preCharge)
 
 	chargeFrom := st.GasPayer()
 
-	if have, want := state.GetBalance(*chargeFrom), balanceCheck; have.Cmp(want) < 0 {
+	if have, want := state.GetBalance(*chargeFrom), preCharge; have.Cmp(want) < 0 {
 		return 0, nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
 	}
 
@@ -234,7 +236,7 @@ func ptr(s string) *string { return &s }
 func ApplyRip7560ValidationPhases(
 	chainConfig *params.ChainConfig,
 	bc ChainContext,
-	author *common.Address,
+	coinbase *common.Address,
 	gp *GasPool,
 	statedb *state.StateDB,
 	header *types.Header,
@@ -243,21 +245,17 @@ func ApplyRip7560ValidationPhases(
 ) (*ValidationPhaseResult, error) {
 	aatx := tx.Rip7560TransactionData()
 
-	gasPrice := new(big.Int).Add(header.BaseFee, tx.GasTipCap())
-	if gasPrice.Cmp(tx.GasFeeCap()) > 0 {
-		gasPrice = tx.GasFeeCap()
-	}
-	gasPriceUint256, _ := uint256.FromBig(gasPrice)
-
-	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, gasPriceUint256)
+	gasPrice := aatx.EffectiveGasPrice(header.BaseFee)
+	effectiveGasPrice := uint256.MustFromBig(gasPrice)
+	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice)
 	if err != nil {
 		return nil, newValidationPhaseError(err, nil, nil)
 	}
 
-	blockContext := NewEVMBlockContext(header, bc, author)
-	sender := tx.Rip7560TransactionData().Sender
+	blockContext := NewEVMBlockContext(header, bc, coinbase)
+	sender := aatx.Sender
 	txContext := vm.TxContext{
-		Origin:   *sender,
+		Origin:   *aatx.Sender,
 		GasPrice: gasPrice,
 	}
 	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
@@ -359,24 +357,34 @@ func ApplyRip7560ValidationPhases(
 	}
 
 	callDataUsedGas, err := aatx.CallDataGasCost()
+	//this is the value to refund, but we refund at the end, after execution.
+	// we COULD refund here (and thus restore unused gas to the gaspool),and that would allow more TXs to be included in a block,
+	// but that would require a more complex refund mechanism: splitting evm refund from excessive prefund refund.
+	gasRefund := st.state.GetRefund()
+
+	validationGasUsed := st.gasUsed() + callDataUsedGas
 	if err != nil {
 		return nil, err
 	}
 	vpr := &ValidationPhaseResult{
-		Tx:                  tx,
-		TxHash:              tx.Hash(),
-		PreCharge:           preCharge,
-		EffectiveGasPrice:   gasPriceUint256,
-		PaymasterContext:    paymasterContext,
+		Tx:                     tx,
+		TxHash:                 tx.Hash(),
+		PreCharge:              preCharge,
+		EffectiveGasPrice:      effectiveGasPrice,
+		PaymasterContext:       paymasterContext,
+		ValidationRefund:       gasRefund,
+		TotalValidationGasUsed: validationGasUsed,
+
 		CallDataUsedGas:     callDataUsedGas,
 		DeploymentUsedGas:   deploymentUsedGas,
 		NonceManagerUsedGas: nonceManagerUsedGas,
 		ValidationUsedGas:   resultAccountValidation.UsedGas,
 		PmValidationUsedGas: pmValidationUsedGas,
-		SenderValidAfter:    aad.ValidAfter.Uint64(),
-		SenderValidUntil:    aad.ValidUntil.Uint64(),
-		PmValidAfter:        pmValidAfter,
-		PmValidUntil:        pmValidUntil,
+
+		SenderValidAfter: aad.ValidAfter.Uint64(),
+		SenderValidUntil: aad.ValidUntil.Uint64(),
+		PmValidAfter:     pmValidAfter,
+		PmValidUntil:     pmValidUntil,
 	}
 	statedb.Finalise(true)
 
@@ -422,9 +430,17 @@ func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAb
 	return paymasterPostOpResult
 }
 
-func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+func capRefund(getRefund uint64, gasUsed uint64) uint64 {
+	refund := gasUsed / params.RefundQuotientEIP3529
+	if refund > getRefund {
+		return getRefund
+	}
+	return refund
+}
 
-	blockContext := NewEVMBlockContext(header, bc, author)
+func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, coinbase *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+
+	blockContext := NewEVMBlockContext(header, bc, coinbase)
 	aatx := vpr.Tx.Rip7560TransactionData()
 	sender := aatx.Sender
 	txContext := vm.TxContext{
@@ -440,38 +456,40 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx)
 	beforeExecSnapshotId := statedb.Snapshot()
 	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg, aatx.Gas)
+	execRefund := capRefund(st.state.GetRefund(), executionResult.UsedGas)
 	executionStatus := types.ReceiptStatusSuccessful
 	if executionResult.Failed() {
 		executionStatus = types.ReceiptStatusFailed
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
-	gasUsed := vpr.ValidationUsedGas +
-		vpr.NonceManagerUsedGas +
-		vpr.DeploymentUsedGas +
-		vpr.PmValidationUsedGas +
-		vpr.CallDataUsedGas +
+	gasUsed := vpr.TotalValidationGasUsed +
 		executionResult.UsedGas +
 		executionGasPenalty
 
+	gasRefund := capRefund(execRefund+vpr.ValidationRefund, gasUsed)
+
 	var postOpGasUsed uint64
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult := applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed)
+		paymasterPostOpResult := applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed-gasRefund)
 		postOpGasUsed = paymasterPostOpResult.UsedGas
+		gasRefund += capRefund(paymasterPostOpResult.RefundedGas, postOpGasUsed)
 		// PostOp failed, reverting execution changes
 		if paymasterPostOpResult.Err != nil {
 			statedb.RevertToSnapshot(beforeExecSnapshotId)
 			executionStatus = types.ReceiptStatusFailed
 		}
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
-		gasUsed += postOpGasUsed + postOpGasPenalty
+		postOpGasUsed += postOpGasPenalty
+		gasUsed += postOpGasUsed
 	}
+	gasUsed -= gasRefund
+	refundPayer(vpr, statedb, gasUsed)
+	payCoinbase(st, aatx, gasUsed)
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
 	receipt.Status = executionStatus
-
-	refundPayer(vpr, statedb, gasUsed)
 
 	// Set the receipt logs and create the bloom filter.
 	blockNumber := header.Number
@@ -480,6 +498,34 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
 	return receipt, nil
+}
+
+// extracted from TransitionDb()
+func payCoinbase(st *StateTransition, msg *types.Rip7560AccountAbstractionTx, gasUsed uint64) {
+	rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, st.evm.Context.Random != nil, st.evm.Context.Time)
+
+	effectiveTip := msg.GasTipCap
+	if rules.IsLondon {
+		effectiveTip = cmath.BigMin(msg.GasTipCap, new(big.Int).Sub(msg.GasFeeCap, st.evm.Context.BaseFee))
+	}
+
+	effectiveTipU256, _ := uint256.FromBig(effectiveTip)
+
+	fmt.Printf("=== paying coinbase %v gasUsed %v effectiveTip %v\n", st.evm.Context.Coinbase.Hex(), gasUsed, effectiveTipU256)
+
+	if st.evm.Config.NoBaseFee && msg.GasFeeCap.Sign() == 0 && msg.GasTipCap.Sign() == 0 {
+		// Skip fee payment when NoBaseFee is set and the fee fields
+		// are 0. This avoids a negative effectiveTip being applied to
+		// the coinbase when simulating calls.
+	} else {
+		fee := new(uint256.Int).SetUint64(gasUsed)
+		fee.Mul(fee, effectiveTipU256)
+		st.state.AddBalance(st.evm.Context.Coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
+		// add the coinbase to the witness iff the fee is greater than 0
+		if rules.IsEIP4762 && fee.Sign() != 0 {
+			st.evm.AccessEvents.BalanceGas(st.evm.Context.Coinbase, true)
+		}
+	}
 }
 
 func prepareAccountValidationMessage(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {

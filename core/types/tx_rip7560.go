@@ -160,6 +160,10 @@ func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
 	return tx.NonceKey != nil && tx.NonceKey.Cmp(big.NewInt(0)) == 1
 }
 
+func (tx *Rip7560AccountAbstractionTx) EffectiveGasPrice(baseFee *big.Int) *big.Int {
+	return tx.effectiveGasPrice(new(big.Int), baseFee)
+}
+
 func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)
