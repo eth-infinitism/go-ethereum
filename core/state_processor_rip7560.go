@@ -512,7 +512,10 @@ func injectRIP7560TransactionEvent(
 	if err != nil {
 		return err
 	}
-	injectEvent(topics, data, header.Number.Uint64(), statedb)
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
