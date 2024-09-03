@@ -89,15 +89,28 @@ func newValidationPhaseError(
 	}
 }
 
-// HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
-// the number of handled transactions
-// the transactions array must start with the RIP-7560 transaction
-func HandleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
+// HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions.
+// During block building the 'skipInvalid' flag is set to False, and invalid transactions are silently ignored.
+// Returns an array of included transactions.
+func HandleRip7560Transactions(
+	transactions []*types.Transaction,
+	index int,
+	statedb *state.StateDB,
+	coinbase *common.Address,
+	header *types.Header,
+	gp *GasPool,
+	chainConfig *params.ChainConfig,
+	bc ChainContext,
+	cfg vm.Config,
+	skipInvalid bool,
+) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
 	validatedTransactions := make([]*types.Transaction, 0)
 	receipts := make([]*types.Receipt, 0)
 	allLogs := make([]*types.Log, 0)
 
-	iTransactions, iReceipts, iLogs, err := handleRip7560Transactions(transactions, index, statedb, coinbase, header, gp, chainConfig, bc, cfg)
+	iTransactions, iReceipts, iLogs, err := handleRip7560Transactions(
+		transactions, index, statedb, coinbase, header, gp, chainConfig, bc, cfg, skipInvalid,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -107,7 +120,18 @@ func HandleRip7560Transactions(transactions []*types.Transaction, index int, sta
 	return validatedTransactions, receipts, allLogs, nil
 }
 
-func handleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
+func handleRip7560Transactions(
+	transactions []*types.Transaction,
+	index int,
+	statedb *state.StateDB,
+	coinbase *common.Address,
+	header *types.Header,
+	gp *GasPool,
+	chainConfig *params.ChainConfig,
+	bc ChainContext,
+	cfg vm.Config,
+	skipInvalid bool,
+) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
 	validationPhaseResults := make([]*ValidationPhaseResult, 0)
 	validatedTransactions := make([]*types.Transaction, 0)
 	receipts := make([]*types.Receipt, 0)
@@ -121,6 +145,9 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 
 		vpr, vpe := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
 		if vpe != nil {
+			if skipInvalid {
+				panic("ApplyRip7560ValidationPhases ended in error with skipInvalid=True!")
+			}
 			return nil, nil, nil, vpe
 		}
 		validationPhaseResults = append(validationPhaseResults, vpr)
