@@ -478,7 +478,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 			return nil, err
 		}
 	}
-	if paymasterPostOpResult.Failed() {
+	if paymasterPostOpResult != nil && paymasterPostOpResult.Failed() {
 		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
 		if err != nil {
 			return nil, err
