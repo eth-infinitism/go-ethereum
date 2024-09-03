@@ -130,3 +130,48 @@ func abiEncodeRIP7560TransactionEvent(
 	topics[3] = [32]byte(common.LeftPadBytes(deployer.Bytes()[:], 32))
 	return topics, data, nil
 }
+
+func abiEncodeRIP7560TransactionRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+) (topics []common.Hash, data []byte, error error) {
+	id := Rip7560Abi.Events["RIP7560TransactionRevertReason"].ID
+	inputsAll := Rip7560Abi.Events["RIP7560TransactionRevertReason"].Inputs
+	inputs := inputsAll[1:] // todo: hack - hard-coding the "skipping" of indexed parameters
+	data, error = inputs.Pack(
+		// TODO: append NonceKey
+		big.NewInt(int64(aatx.Nonce)),
+		revertData,
+	)
+	if error != nil {
+		return nil, nil, error
+	}
+	topics = []common.Hash{id, {}}
+	topics[1] = [32]byte(common.LeftPadBytes(aatx.Sender.Bytes()[:], 32))
+	return topics, data, nil
+}
+
+func abiEncodeRIP7560TransactionPostOpRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+) (topics []common.Hash, data []byte, error error) {
+	id := Rip7560Abi.Events["RIP7560TransactionPostOpRevertReason"].ID
+	paymaster := aatx.Paymaster
+	if paymaster == nil {
+		paymaster = &common.Address{}
+	}
+	inputsAll := Rip7560Abi.Events["RIP7560TransactionPostOpRevertReason"].Inputs
+	inputs := inputsAll[2:] // todo: hack - hard-coding the "skipping" of indexed parameters
+	data, error = inputs.Pack(
+		// TODO: append NonceKey
+		big.NewInt(int64(aatx.Nonce)),
+		revertData,
+	)
+	if error != nil {
+		return nil, nil, error
+	}
+	topics = []common.Hash{id, {}, {}}
+	topics[1] = [32]byte(common.LeftPadBytes(aatx.Sender.Bytes()[:], 32))
+	topics[2] = [32]byte(common.LeftPadBytes(paymaster.Bytes()[:], 32))
+	return topics, data, nil
+}

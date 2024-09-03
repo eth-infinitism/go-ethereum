@@ -454,22 +454,35 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		executionResult.UsedGas +
 		executionGasPenalty
 
-	err = injectRIP7560TransactionEvent(aatx, executionStatus == types.ReceiptStatusSuccessful, big.NewInt(0), gasUsed, header, statedb)
-	if err != nil {
-		return nil, err
-	}
-
 	var postOpGasUsed uint64
+	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult := applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed)
+		paymasterPostOpResult = applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed)
 		postOpGasUsed = paymasterPostOpResult.UsedGas
 		// PostOp failed, reverting execution changes
-		if paymasterPostOpResult.Err != nil {
+		if paymasterPostOpResult.Failed() {
 			statedb.RevertToSnapshot(beforeExecSnapshotId)
 			executionStatus = types.ReceiptStatusFailed
 		}
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		gasUsed += postOpGasUsed + postOpGasPenalty
+	}
+
+	err = injectRIP7560TransactionEvent(aatx, executionStatus == types.ReceiptStatusSuccessful, big.NewInt(0), gasUsed, header, statedb)
+	if err != nil {
+		return nil, err
+	}
+	if executionResult.Failed() {
+		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if paymasterPostOpResult.Failed() {
+		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
@@ -499,13 +512,52 @@ func injectRIP7560TransactionEvent(
 	if err != nil {
 		return err
 	}
+	injectEvent(topics, data, header.Number.Uint64(), statedb)
+	return nil
+}
+
+func injectRIP7560TransactionRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionRevertReasonEvent(aatx, revertData)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560TransactionPostOpRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionPostOpRevertReasonEvent(aatx, revertData)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectEvent(topics []common.Hash, data []byte, blockNumber uint64, statedb *state.StateDB) error {
 	transactionLog := &types.Log{
 		Address: AA_ENTRY_POINT,
 		Topics:  topics,
 		Data:    data,
 		// This is a non-consensus field, but assigned here because
 		// core/state doesn't know the current block number.
-		BlockNumber: header.Number.Uint64(),
+		BlockNumber: blockNumber,
 	}
 	statedb.AddLog(transactionLog)
 	return nil
