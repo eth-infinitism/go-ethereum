@@ -293,3 +293,10 @@ type BundleReceipt struct {
 	GasPaidPriority     *big.Int
 	BlockTimestamp      uint64
 }
+
+type Rip7560TransactionDebugInfo struct {
+	TxHash           common.Hash
+	RevertEntityName string
+	FrameReverted    bool // true if reverted, false if did not call EntryPoint callback
+	RevertData       string
+}

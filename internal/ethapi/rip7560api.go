@@ -37,6 +37,10 @@ func (s *TransactionAPI) GetRip7560BundleStatus(ctx context.Context, hash common
 	return bundleStats, err
 }
 
+func (s *TransactionAPI) GetRip7560TransactionDebugInfo(hash common.Hash) (map[string]interface{}, error) {
+	return s.b.GetRip7560TransactionDebugInfo(hash)
+}
+
 // CalculateBundleHash
 // TODO: If this code is indeed necessary, keep it in utils; better - remove altogether.
 func CalculateBundleHash(txs []*types.Transaction) common.Hash {
