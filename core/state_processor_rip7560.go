@@ -41,6 +41,12 @@ type ValidationPhaseResult struct {
 	PmValidUntil        uint64
 }
 
+const (
+	ExecutionStatusSuccess          = uint64(0)
+	ExecutionStatusExecutionFailure = uint64(1)
+	ExecutionStatusPostOpFailure    = uint64(2)
+)
+
 // ValidationPhaseError is an API error that encompasses an EVM revert with JSON error
 // code and a binary data blob.
 type ValidationPhaseError struct {
@@ -440,9 +446,11 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx)
 	beforeExecSnapshotId := statedb.Snapshot()
 	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg, aatx.Gas)
-	executionStatus := types.ReceiptStatusSuccessful
+	receiptStatus := types.ReceiptStatusSuccessful
+	executionStatus := ExecutionStatusSuccess
 	if executionResult.Failed() {
-		executionStatus = types.ReceiptStatusFailed
+		receiptStatus = types.ReceiptStatusFailed
+		executionStatus = ExecutionStatusExecutionFailure
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
@@ -462,13 +470,14 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		// PostOp failed, reverting execution changes
 		if paymasterPostOpResult.Failed() {
 			statedb.RevertToSnapshot(beforeExecSnapshotId)
-			executionStatus = types.ReceiptStatusFailed
+			receiptStatus = types.ReceiptStatusFailed
+			executionStatus = ExecutionStatusPostOpFailure
 		}
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		gasUsed += postOpGasUsed + postOpGasPenalty
 	}
 
-	err = injectRIP7560TransactionEvent(aatx, executionStatus == types.ReceiptStatusSuccessful, big.NewInt(0), gasUsed, header, statedb)
+	err = injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
 	if err != nil {
 		return nil, err
 	}
@@ -487,7 +496,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
-	receipt.Status = executionStatus
+	receipt.Status = receiptStatus
 
 	refundPayer(vpr, statedb, gasUsed)
 
@@ -502,13 +511,11 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 func injectRIP7560TransactionEvent(
 	aatx *types.Rip7560AccountAbstractionTx,
-	success bool,
-	actualGasCost *big.Int,
-	actualGasUsed uint64,
+	executionStatus uint64,
 	header *types.Header,
 	statedb *state.StateDB,
 ) error {
-	topics, data, err := abiEncodeRIP7560TransactionEvent(aatx, success, actualGasCost, actualGasUsed)
+	topics, data, err := abiEncodeRIP7560TransactionEvent(aatx, executionStatus)
 	if err != nil {
 		return err
 	}

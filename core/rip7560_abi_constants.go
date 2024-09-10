@@ -104,19 +104,7 @@ const Rip7560AbiJson = `
         {
           "indexed": false,
           "internalType": "bool",
-          "name": "success",
-          "type": "bool"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "actualGasCost",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "actualGasUsed",
+          "name": "executionStatus",
           "type": "uint256"
         }
       ],

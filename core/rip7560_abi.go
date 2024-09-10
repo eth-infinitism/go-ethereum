@@ -99,9 +99,7 @@ func abiDecodeAcceptPaymaster(input []byte, allowSigFail bool) (*AcceptPaymaster
 
 func abiEncodeRIP7560TransactionEvent(
 	aatx *types.Rip7560AccountAbstractionTx,
-	success bool,
-	actualGasCost *big.Int,
-	actualGasUsed uint64,
+	executionStatus uint64,
 ) (topics []common.Hash, data []byte, error error) {
 	id := Rip7560Abi.Events["RIP7560TransactionEvent"].ID
 	paymaster := aatx.Paymaster
@@ -117,9 +115,7 @@ func abiEncodeRIP7560TransactionEvent(
 	data, error = inputs.Pack(
 		// TODO: append NonceKey
 		big.NewInt(int64(aatx.Nonce)),
-		success,
-		actualGasCost,
-		big.NewInt(int64(actualGasUsed)),
+		big.NewInt(int64(executionStatus)),
 	)
 	if error != nil {
 		return nil, nil, error
