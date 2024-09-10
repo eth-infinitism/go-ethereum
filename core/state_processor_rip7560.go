@@ -42,9 +42,10 @@ type ValidationPhaseResult struct {
 }
 
 const (
-	ExecutionStatusSuccess          = uint64(0)
-	ExecutionStatusExecutionFailure = uint64(1)
-	ExecutionStatusPostOpFailure    = uint64(2)
+	ExecutionStatusSuccess                   = uint64(0)
+	ExecutionStatusExecutionFailure          = uint64(1)
+	ExecutionStatusPostOpFailure             = uint64(2)
+	ExecutionStatusExecutionAndPostOpFailure = uint64(3)
 )
 
 // ValidationPhaseError is an API error that encompasses an EVM revert with JSON error
@@ -471,6 +472,9 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		if paymasterPostOpResult.Failed() {
 			statedb.RevertToSnapshot(beforeExecSnapshotId)
 			receiptStatus = types.ReceiptStatusFailed
+			if executionStatus == ExecutionStatusExecutionFailure {
+				executionStatus = ExecutionStatusExecutionAndPostOpFailure
+			}
 			executionStatus = ExecutionStatusPostOpFailure
 		}
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
