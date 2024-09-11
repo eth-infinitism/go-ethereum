@@ -148,10 +148,13 @@ func handleRip7560Transactions(
 
 		statedb.SetTxContext(tx.Hash(), index+i)
 		beforeValidationSnapshotId := statedb.Snapshot()
-		vpr, vpe := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
+		vpr, nonceIncremented, vpe := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
 		if vpe != nil {
 			if skipInvalid {
 				log.Error("Validation failed during block building, should not happen, skipping transaction", "error", vpe)
+				if nonceIncremented {
+					decrementNonce(statedb, tx.Rip7560TransactionData().Sender)
+				}
 				debugInfo := &types.Rip7560TransactionDebugInfo{
 					TxHash:           tx.Hash(),
 					RevertData:       vpe.Error(),
@@ -233,6 +236,7 @@ func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionT
 		return performNonceCheckFrameRip7712(st, tx)
 	}
 	stNonce := st.state.GetNonce(*tx.Sender)
+	println("CheckNonceRip7560", stNonce, tx.Sender.String())
 	if msgNonce := tx.Nonce; stNonce < msgNonce {
 		return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
 			tx.Sender.Hex(), msgNonce, stNonce)
@@ -288,7 +292,8 @@ func ApplyRip7560ValidationPhases(
 	header *types.Header,
 	tx *types.Transaction,
 	cfg vm.Config,
-) (*ValidationPhaseResult, error) {
+) (*ValidationPhaseResult, bool, error) {
+	nonceIncremented := false
 	aatx := tx.Rip7560TransactionData()
 
 	gasPrice := new(big.Int).Add(header.BaseFee, tx.GasTipCap())
@@ -299,7 +304,7 @@ func ApplyRip7560ValidationPhases(
 
 	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, gasPriceUint256)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, nonceIncremented, newValidationPhaseError(err, nil, nil, false)
 	}
 
 	blockContext := NewEVMBlockContext(header, bc, author)
@@ -334,18 +339,18 @@ func ApplyRip7560ValidationPhases(
 	/*** Nonce Manager Frame ***/
 	nonceManagerUsedGas, err := CheckNonceRip7560(st, aatx)
 	if err != nil {
-		return nil, err
+		return nil, nonceIncremented, err
 	}
 
 	/*** Deployer Frame ***/
 	var deploymentUsedGas uint64
 	if aatx.Deployer != nil {
 		if statedb.GetCodeSize(*sender) != 0 {
-			return nil, fmt.Errorf("account deployment failed: already deployed")
+			return nil, nonceIncremented, fmt.Errorf("account deployment failed: already deployed")
 		}
 		resultDeployer := CallFrame(st, &AA_SENDER_CREATOR, aatx.Deployer, aatx.DeployerData, aatx.ValidationGasLimit)
 		if resultDeployer.Failed() {
-			return nil, newValidationPhaseError(
+			return nil, nonceIncremented, newValidationPhaseError(
 				resultDeployer.Err,
 				resultDeployer.ReturnData,
 				ptr("deployer"),
@@ -353,7 +358,7 @@ func ApplyRip7560ValidationPhases(
 			)
 		}
 		if statedb.GetCodeSize(*sender) == 0 {
-			return nil, newValidationPhaseError(
+			return nil, nonceIncremented, newValidationPhaseError(
 				fmt.Errorf(
 					"sender not deployed by factory, sender:%s factory:%s",
 					sender.String(), aatx.Deployer.String(),
@@ -362,13 +367,14 @@ func ApplyRip7560ValidationPhases(
 		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
 		if statedb.GetCodeSize(*sender) == 0 {
-			return nil, newValidationPhaseError(
+			return nil, nonceIncremented, newValidationPhaseError(
 				fmt.Errorf(
 					"account is not deployed and no factory is specified, account:%s", sender.String(),
 				), nil, nil, false)
 		}
 		if !aatx.IsRip7712Nonce() {
-			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
+			incrementNonce(statedb, sender)
+			nonceIncremented = true
 		}
 	}
 
@@ -377,11 +383,11 @@ func ApplyRip7560ValidationPhases(
 	signingHash := signer.Hash(tx)
 	accountValidationMsg, err := prepareAccountValidationMessage(aatx, signingHash)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, nonceIncremented, newValidationPhaseError(err, nil, nil, false)
 	}
 	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg, aatx.ValidationGasLimit-deploymentUsedGas)
 	if resultAccountValidation.Failed() {
-		return nil, newValidationPhaseError(
+		return nil, nonceIncremented, newValidationPhaseError(
 			resultAccountValidation.Err,
 			resultAccountValidation.ReturnData,
 			ptr("account"),
@@ -390,7 +396,7 @@ func ApplyRip7560ValidationPhases(
 	}
 	aad, err := validateAccountEntryPointCall(epc, aatx.Sender)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, nonceIncremented, newValidationPhaseError(err, nil, nil, false)
 	}
 
 	// clear the EntryPoint calls array after parsing
@@ -400,17 +406,17 @@ func ApplyRip7560ValidationPhases(
 
 	err = validateValidityTimeRange(header.Time, aad.ValidAfter.Uint64(), aad.ValidUntil.Uint64())
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, nonceIncremented, newValidationPhaseError(err, nil, nil, false)
 	}
 
 	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, signingHash, header)
 	if err != nil {
-		return nil, err
+		return nil, nonceIncremented, err
 	}
 
 	callDataUsedGas, err := aatx.CallDataGasCost()
 	if err != nil {
-		return nil, err
+		return nil, nonceIncremented, err
 	}
 	vpr := &ValidationPhaseResult{
 		Tx:                  tx,
@@ -430,7 +436,17 @@ func ApplyRip7560ValidationPhases(
 	}
 	statedb.Finalise(true)
 
-	return vpr, nil
+	return vpr, nonceIncremented, nil
+}
+
+func incrementNonce(statedb *state.StateDB, sender *common.Address) {
+	nonce := statedb.GetNonce(*sender)
+	statedb.SetNonce(*sender, nonce+1)
+}
+
+func decrementNonce(statedb *state.StateDB, sender *common.Address) {
+	nonce := statedb.GetNonce(*sender)
+	statedb.SetNonce(*sender, nonce-1)
 }
 
 func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {

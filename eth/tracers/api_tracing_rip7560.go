@@ -145,7 +145,7 @@ func (api *Rip7560API) traceTx(
 		return result, err
 	}
 
-	_, err = core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
+	_, _, err = core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
 	if err != nil {
 		return nil, err
 	}
