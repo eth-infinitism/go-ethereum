@@ -52,10 +52,6 @@ type ValidationPhaseError struct {
 	frameReverted    bool
 }
 
-func (v *ValidationPhaseError) Error() string {
-	return v.error.Error()
-}
-
 func (v *ValidationPhaseError) ErrorData() interface{} {
 	return v.reason
 }
