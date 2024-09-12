@@ -381,7 +381,8 @@ func (miner *Miner) commitRip7560TransactionsBundle(env *environment, txs *types
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
-	validatedTxs, receipts, _, err := core.HandleRip7560Transactions(txs.Transactions, 0, env.state, &env.coinbase, env.header, env.gasPool, miner.chainConfig, miner.chain, vm.Config{})
+	validatedTxs, receipts, validationFailureInfos, _, err := core.HandleRip7560Transactions(txs.Transactions, 0, env.state, &env.coinbase, env.header, env.gasPool, miner.chainConfig, miner.chain, vm.Config{}, true)
+	miner.chain.SetRip7560TransactionDebugInfo(validationFailureInfos)
 	if err != nil {
 		return err
 	}

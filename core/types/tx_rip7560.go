@@ -145,13 +145,9 @@ func (tx *Rip7560AccountAbstractionTx) CallDataGasCost() (uint64, error) {
 }
 
 func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
-	callDataGasCost, err := tx.CallDataGasCost()
-	if err != nil {
-		return 0, err
-	}
 	return sumGas(
+		params.Rip7560TxGas,
 		tx.Gas, tx.ValidationGasLimit, tx.PaymasterValidationGasLimit, tx.PostOpGas,
-		callDataGasCost,
 	)
 }
 
@@ -296,4 +292,11 @@ type BundleReceipt struct {
 	GasUsed             uint64
 	GasPaidPriority     *big.Int
 	BlockTimestamp      uint64
+}
+
+type Rip7560TransactionDebugInfo struct {
+	TxHash           common.Hash
+	RevertEntityName string
+	FrameReverted    bool // true if reverted, false if did not call EntryPoint callback
+	RevertData       string
 }

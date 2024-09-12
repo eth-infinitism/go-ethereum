@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"math/big"
@@ -44,15 +45,21 @@ type ValidationPhaseResult struct {
 	PmValidUntil           uint64
 }
 
+const (
+	ExecutionStatusSuccess                   = uint64(0)
+	ExecutionStatusExecutionFailure          = uint64(1)
+	ExecutionStatusPostOpFailure             = uint64(2)
+	ExecutionStatusExecutionAndPostOpFailure = uint64(3)
+)
+
 // ValidationPhaseError is an API error that encompasses an EVM revert with JSON error
 // code and a binary data blob.
 type ValidationPhaseError struct {
 	error
 	reason string // revert reason hex encoded
-}
 
-func (v *ValidationPhaseError) Error() string {
-	return v.error.Error()
+	revertEntityName *string
+	frameReverted    bool
 }
 
 func (v *ValidationPhaseError) ErrorData() interface{} {
@@ -64,6 +71,7 @@ func newValidationPhaseError(
 	innerErr error,
 	revertReason []byte,
 	revertEntityName *string,
+	frameReverted bool,
 ) *ValidationPhaseError {
 	var errorMessage string
 	contractSubst := ""
@@ -89,30 +97,58 @@ func newValidationPhaseError(
 	return &ValidationPhaseError{
 		error:  err,
 		reason: hexutil.Encode(revertReason),
+
+		frameReverted:    frameReverted,
+		revertEntityName: revertEntityName,
 	}
 }
 
-// HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions and return
-// the number of handled transactions
-// the transactions array must start with the RIP-7560 transaction
-func HandleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
+// HandleRip7560Transactions apply state changes of all sequential RIP-7560 transactions.
+// During block building the 'skipInvalid' flag is set to False, and invalid transactions are silently ignored.
+// Returns an array of included transactions.
+func HandleRip7560Transactions(
+	transactions []*types.Transaction,
+	index int,
+	statedb *state.StateDB,
+	coinbase *common.Address,
+	header *types.Header,
+	gp *GasPool,
+	chainConfig *params.ChainConfig,
+	bc ChainContext,
+	cfg vm.Config,
+	skipInvalid bool,
+) ([]*types.Transaction, types.Receipts, []*types.Rip7560TransactionDebugInfo, []*types.Log, error) {
 	validatedTransactions := make([]*types.Transaction, 0)
 	receipts := make([]*types.Receipt, 0)
 	allLogs := make([]*types.Log, 0)
 
-	iTransactions, iReceipts, iLogs, err := handleRip7560Transactions(transactions, index, statedb, coinbase, header, gp, chainConfig, bc, cfg)
+	iTransactions, iReceipts, validationFailureReceipts, iLogs, err := handleRip7560Transactions(
+		transactions, index, statedb, coinbase, header, gp, chainConfig, bc, cfg, skipInvalid,
+	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	validatedTransactions = append(validatedTransactions, iTransactions...)
 	receipts = append(receipts, iReceipts...)
 	allLogs = append(allLogs, iLogs...)
-	return validatedTransactions, receipts, allLogs, nil
+	return validatedTransactions, receipts, validationFailureReceipts, allLogs, nil
 }
 
-func handleRip7560Transactions(transactions []*types.Transaction, index int, statedb *state.StateDB, coinbase *common.Address, header *types.Header, gp *GasPool, chainConfig *params.ChainConfig, bc ChainContext, cfg vm.Config) ([]*types.Transaction, types.Receipts, []*types.Log, error) {
+func handleRip7560Transactions(
+	transactions []*types.Transaction,
+	index int,
+	statedb *state.StateDB,
+	coinbase *common.Address,
+	header *types.Header,
+	gp *GasPool,
+	chainConfig *params.ChainConfig,
+	bc ChainContext,
+	cfg vm.Config,
+	skipInvalid bool,
+) ([]*types.Transaction, types.Receipts, []*types.Rip7560TransactionDebugInfo, []*types.Log, error) {
 	validationPhaseResults := make([]*ValidationPhaseResult, 0)
 	validatedTransactions := make([]*types.Transaction, 0)
+	validationFailureInfos := make([]*types.Rip7560TransactionDebugInfo, 0)
 	receipts := make([]*types.Receipt, 0)
 	allLogs := make([]*types.Log, 0)
 	for i, tx := range transactions[index:] {
@@ -121,10 +157,28 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 		}
 
 		statedb.SetTxContext(tx.Hash(), index+i)
-
-		vpr, err := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
-		if err != nil {
-			return nil, nil, nil, err
+		beforeValidationSnapshotId := statedb.Snapshot()
+		vpr, vpe := ApplyRip7560ValidationPhases(chainConfig, bc, coinbase, gp, statedb, header, tx, cfg)
+		if vpe != nil {
+			if skipInvalid {
+				log.Error("Validation failed during block building, should not happen, skipping transaction", "error", vpe)
+				debugInfo := &types.Rip7560TransactionDebugInfo{
+					TxHash:           tx.Hash(),
+					RevertData:       vpe.Error(),
+					FrameReverted:    false,
+					RevertEntityName: "n/a",
+				}
+				validationFailureInfos = append(validationFailureInfos, debugInfo)
+				var vpeCast *ValidationPhaseError
+				if errors.As(vpe, &vpeCast) {
+					debugInfo.RevertData = vpeCast.reason
+					debugInfo.FrameReverted = vpeCast.frameReverted
+					debugInfo.RevertEntityName = *vpeCast.revertEntityName
+				}
+				statedb.RevertToSnapshot(beforeValidationSnapshotId)
+				continue
+			}
+			return nil, nil, nil, nil, vpe
 		}
 		validationPhaseResults = append(validationPhaseResults, vpr)
 		validatedTransactions = append(validatedTransactions, tx)
@@ -139,14 +193,14 @@ func handleRip7560Transactions(transactions []*types.Transaction, index int, sta
 		receipt, err := ApplyRip7560ExecutionPhase(chainConfig, vpr, bc, coinbase, gp, statedb, header, cfg)
 
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		statedb.Finalise(true)
 
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
-	return validatedTransactions, receipts, allLogs, nil
+	return validatedTransactions, receipts, validationFailureInfos, allLogs, nil
 }
 
 func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB, gasPrice *uint256.Int) (uint64, *uint256.Int, error) {
@@ -203,7 +257,7 @@ func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionT
 
 func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
 	if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
-		return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil)
+		return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil, false)
 	}
 	nonceManagerMessageData := prepareNonceManagerMessage(tx)
 	resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessageData, st.gasRemaining)
@@ -212,6 +266,7 @@ func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560Account
 			fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err),
 			resultNonceManager.ReturnData,
 			ptr("NonceManager"),
+			true,
 		)
 	}
 	return resultNonceManager.UsedGas, nil
@@ -249,7 +304,7 @@ func ApplyRip7560ValidationPhases(
 	effectiveGasPrice := uint256.MustFromBig(gasPrice)
 	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil)
+		return nil, newValidationPhaseError(err, nil, nil, false)
 	}
 
 	blockContext := NewEVMBlockContext(header, bc, coinbase)
@@ -299,6 +354,7 @@ func ApplyRip7560ValidationPhases(
 				resultDeployer.Err,
 				resultDeployer.ReturnData,
 				ptr("deployer"),
+				true,
 			)
 		}
 		if statedb.GetCodeSize(*sender) == 0 {
@@ -306,7 +362,7 @@ func ApplyRip7560ValidationPhases(
 				fmt.Errorf(
 					"sender not deployed by factory, sender:%s factory:%s",
 					sender.String(), aatx.Deployer.String(),
-				), nil, nil)
+				), nil, nil, false)
 		}
 		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
@@ -314,7 +370,7 @@ func ApplyRip7560ValidationPhases(
 			return nil, newValidationPhaseError(
 				fmt.Errorf(
 					"account is not deployed and no factory is specified, account:%s", sender.String(),
-				), nil, nil)
+				), nil, nil, false)
 		}
 		if !aatx.IsRip7712Nonce() {
 			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
@@ -326,7 +382,7 @@ func ApplyRip7560ValidationPhases(
 	signingHash := signer.Hash(tx)
 	accountValidationMsg, err := prepareAccountValidationMessage(aatx, signingHash)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil)
+		return nil, newValidationPhaseError(err, nil, nil, false)
 	}
 	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg, aatx.ValidationGasLimit-deploymentUsedGas)
 	if resultAccountValidation.Failed() {
@@ -334,11 +390,12 @@ func ApplyRip7560ValidationPhases(
 			resultAccountValidation.Err,
 			resultAccountValidation.ReturnData,
 			ptr("account"),
+			true,
 		)
 	}
 	aad, err := validateAccountEntryPointCall(epc, aatx.Sender)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil)
+		return nil, newValidationPhaseError(err, nil, nil, false)
 	}
 
 	// clear the EntryPoint calls array after parsing
@@ -348,7 +405,7 @@ func ApplyRip7560ValidationPhases(
 
 	err = validateValidityTimeRange(header.Time, aad.ValidAfter.Uint64(), aad.ValidUntil.Uint64())
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil)
+		return nil, newValidationPhaseError(err, nil, nil, false)
 	}
 
 	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, signingHash, header)
@@ -397,7 +454,7 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 	var pmValidationUsedGas uint64
 	paymasterMsg, err := preparePaymasterValidationMessage(aatx, signingHash)
 	if err != nil {
-		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil)
+		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil, false)
 	}
 	if paymasterMsg == nil {
 		return nil, 0, 0, 0, nil
@@ -409,16 +466,17 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 			resultPm.Err,
 			resultPm.ReturnData,
 			ptr("paymaster"),
+			true,
 		)
 	}
 	pmValidationUsedGas = resultPm.UsedGas
 	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster)
 	if err != nil {
-		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil)
+		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil, false)
 	}
 	err = validateValidityTimeRange(header.Time, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64())
 	if err != nil {
-		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil)
+		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil, false)
 	}
 	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
@@ -456,10 +514,12 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx)
 	beforeExecSnapshotId := statedb.Snapshot()
 	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg, aatx.Gas)
+	receiptStatus := types.ReceiptStatusSuccessful
+	executionStatus := ExecutionStatusSuccess
 	execRefund := capRefund(st.state.GetRefund(), executionResult.UsedGas)
-	executionStatus := types.ReceiptStatusSuccessful
 	if executionResult.Failed() {
-		executionStatus = types.ReceiptStatusFailed
+		receiptStatus = types.ReceiptStatusFailed
+		executionStatus = ExecutionStatusExecutionFailure
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
@@ -470,14 +530,19 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	gasRefund := capRefund(execRefund+vpr.ValidationRefund, gasUsed)
 
 	var postOpGasUsed uint64
+	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult := applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed-gasRefund)
+		paymasterPostOpResult = applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed-gasRefund)
 		postOpGasUsed = paymasterPostOpResult.UsedGas
 		gasRefund += capRefund(paymasterPostOpResult.RefundedGas, postOpGasUsed)
 		// PostOp failed, reverting execution changes
-		if paymasterPostOpResult.Err != nil {
+		if paymasterPostOpResult.Failed() {
 			statedb.RevertToSnapshot(beforeExecSnapshotId)
-			executionStatus = types.ReceiptStatusFailed
+			receiptStatus = types.ReceiptStatusFailed
+			if executionStatus == ExecutionStatusExecutionFailure {
+				executionStatus = ExecutionStatusExecutionAndPostOpFailure
+			}
+			executionStatus = ExecutionStatusPostOpFailure
 		}
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		postOpGasUsed += postOpGasPenalty
@@ -487,9 +552,32 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	refundPayer(vpr, statedb, gasUsed)
 	payCoinbase(st, aatx, gasUsed)
 
+	err := injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
+	if err != nil {
+		return nil, err
+	}
+	if aatx.Deployer != nil {
+		err = injectRIP7560AccountDeployedEvent(aatx, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if executionResult.Failed() {
+		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if paymasterPostOpResult != nil && paymasterPostOpResult.Failed() {
+		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
-	receipt.Status = executionStatus
+	receipt.Status = receiptStatus
 
 	// Set the receipt logs and create the bloom filter.
 	blockNumber := header.Number
@@ -498,6 +586,86 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
 	return receipt, nil
+}
+
+func injectRIP7560TransactionEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	executionStatus uint64,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionEvent(aatx, executionStatus)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560AccountDeployedEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560AccountDeployedEvent(aatx)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560TransactionRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionRevertReasonEvent(aatx, revertData)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560TransactionPostOpRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionPostOpRevertReasonEvent(aatx, revertData)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectEvent(topics []common.Hash, data []byte, blockNumber uint64, statedb *state.StateDB) error {
+	transactionLog := &types.Log{
+		Address: AA_ENTRY_POINT,
+		Topics:  topics,
+		Data:    data,
+		// This is a non-consensus field, but assigned here because
+		// core/state doesn't know the current block number.
+		BlockNumber: blockNumber,
+	}
+	statedb.AddLog(transactionLog)
+	return nil
 }
 
 // extracted from TransitionDb()

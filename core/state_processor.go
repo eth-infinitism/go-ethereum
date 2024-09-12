@@ -85,7 +85,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if tx.Type() == types.Rip7560Type {
 			// HandleRip7560Transactions accepts a transaction array and in the future bundle handling will need this
 			tmpTxs := [1]*types.Transaction{tx}
-			_, validatedTxsReceipts, validateTxsLogs, err := HandleRip7560Transactions(tmpTxs[:], 0, statedb, &context.Coinbase, header, gp, p.config, p.bc, cfg)
+			_, validatedTxsReceipts, _, validateTxsLogs, err := HandleRip7560Transactions(tmpTxs[:], 0, statedb, &context.Coinbase, header, gp, p.config, p.bc, cfg, false)
 			receipts = append(receipts, validatedTxsReceipts...)
 			allLogs = append(allLogs, validateTxsLogs...)
 			if err != nil {

@@ -99,8 +99,14 @@ type Backend interface {
 	ServiceFilter(ctx context.Context, session *bloombits.MatcherSession)
 
 	// RIP-7560 specific functions
+
 	SubmitRip7560Bundle(bundle *types.ExternallyReceivedBundle) error
 	GetRip7560BundleStatus(ctx context.Context, hash common.Hash) (*types.BundleReceipt, error)
+
+	// RIP-7560 debug
+
+	GetRip7560TransactionDebugInfo(common.Hash) (map[string]interface{}, error)
+	SetRip7560TransactionDebugInfo(infos []*types.Rip7560TransactionDebugInfo)
 }
 
 func GetAPIs(apiBackend Backend) []rpc.API {

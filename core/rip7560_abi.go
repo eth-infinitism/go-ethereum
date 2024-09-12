@@ -96,3 +96,96 @@ func abiDecodeAcceptPaymaster(input []byte, allowSigFail bool) (*AcceptPaymaster
 	}
 	return acceptPaymasterData, err
 }
+
+func abiEncodeRIP7560TransactionEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	executionStatus uint64,
+) (topics []common.Hash, data []byte, error error) {
+	id := Rip7560Abi.Events["RIP7560TransactionEvent"].ID
+	paymaster := aatx.Paymaster
+	if paymaster == nil {
+		paymaster = &common.Address{}
+	}
+	deployer := aatx.Deployer
+	if deployer == nil {
+		deployer = &common.Address{}
+	}
+	inputs := Rip7560Abi.Events["RIP7560TransactionEvent"].Inputs
+	data, error = inputs.NonIndexed().Pack(
+		aatx.NonceKey,
+		big.NewInt(int64(aatx.Nonce)),
+		big.NewInt(int64(executionStatus)),
+	)
+	if error != nil {
+		return nil, nil, error
+	}
+	topics = []common.Hash{id, {}, {}}
+	topics[1] = [32]byte(common.LeftPadBytes(aatx.Sender.Bytes()[:], 32))
+	topics[2] = [32]byte(common.LeftPadBytes(paymaster.Bytes()[:], 32))
+	return topics, data, nil
+}
+
+func abiEncodeRIP7560AccountDeployedEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+) (topics []common.Hash, data []byte, error error) {
+	id := Rip7560Abi.Events["RIP7560AccountDeployed"].ID
+	paymaster := aatx.Paymaster
+	if paymaster == nil {
+		paymaster = &common.Address{}
+	}
+	deployer := aatx.Deployer
+	if deployer == nil {
+		deployer = &common.Address{}
+	}
+	if error != nil {
+		return nil, nil, error
+	}
+	topics = []common.Hash{id, {}, {}, {}}
+	topics[1] = [32]byte(common.LeftPadBytes(aatx.Sender.Bytes()[:], 32))
+	topics[2] = [32]byte(common.LeftPadBytes(paymaster.Bytes()[:], 32))
+	topics[3] = [32]byte(common.LeftPadBytes(deployer.Bytes()[:], 32))
+	return topics, make([]byte, 0), nil
+}
+
+func abiEncodeRIP7560TransactionRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+) (topics []common.Hash, data []byte, error error) {
+	id := Rip7560Abi.Events["RIP7560TransactionRevertReason"].ID
+	inputs := Rip7560Abi.Events["RIP7560TransactionRevertReason"].Inputs
+	data, error = inputs.NonIndexed().Pack(
+		aatx.NonceKey,
+		big.NewInt(int64(aatx.Nonce)),
+		revertData,
+	)
+	if error != nil {
+		return nil, nil, error
+	}
+	topics = []common.Hash{id, {}}
+	topics[1] = [32]byte(common.LeftPadBytes(aatx.Sender.Bytes()[:], 32))
+	return topics, data, nil
+}
+
+func abiEncodeRIP7560TransactionPostOpRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+) (topics []common.Hash, data []byte, error error) {
+	id := Rip7560Abi.Events["RIP7560TransactionPostOpRevertReason"].ID
+	paymaster := aatx.Paymaster
+	if paymaster == nil {
+		paymaster = &common.Address{}
+	}
+	inputs := Rip7560Abi.Events["RIP7560TransactionPostOpRevertReason"].Inputs
+	data, error = inputs.NonIndexed().Pack(
+		aatx.NonceKey,
+		big.NewInt(int64(aatx.Nonce)),
+		revertData,
+	)
+	if error != nil {
+		return nil, nil, error
+	}
+	topics = []common.Hash{id, {}, {}}
+	topics[1] = [32]byte(common.LeftPadBytes(aatx.Sender.Bytes()[:], 32))
+	topics[2] = [32]byte(common.LeftPadBytes(paymaster.Bytes()[:], 32))
+	return topics, data, nil
+}
