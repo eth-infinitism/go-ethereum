@@ -236,7 +236,6 @@ func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionT
 		return performNonceCheckFrameRip7712(st, tx)
 	}
 	stNonce := st.state.GetNonce(*tx.Sender)
-	println("CheckNonceRip7560", stNonce, tx.Sender.String())
 	if msgNonce := tx.Nonce; stNonce < msgNonce {
 		return 0, fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
 			tx.Sender.Hex(), msgNonce, stNonce)
