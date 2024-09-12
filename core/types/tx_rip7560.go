@@ -145,14 +145,9 @@ func (tx *Rip7560AccountAbstractionTx) CallDataGasCost() (uint64, error) {
 }
 
 func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
-	//callDataGasCost, err := tx.CallDataGasCost()
-	//if err != nil {
-	//	return 0, err
-	//}
 	return sumGas(
 		params.Rip7560TxGas,
 		tx.Gas, tx.ValidationGasLimit, tx.PaymasterValidationGasLimit, tx.PostOpGas,
-		//callDataGasCost,
 	)
 }
 
