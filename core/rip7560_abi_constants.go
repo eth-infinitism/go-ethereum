@@ -90,15 +90,15 @@ const Rip7560AbiJson = `
           "type": "address"
         },
         {
-          "indexed": true,
-          "internalType": "address",
-          "name": "deployer",
-          "type": "address"
-        },
-        {
           "indexed": false,
           "internalType": "uint256",
-          "name": "nonce",
+          "name": "nonceKey",
+          "type": "uint256"
+        },
+{
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "nonceSequence",
           "type": "uint256"
         },
         {
@@ -123,7 +123,13 @@ const Rip7560AbiJson = `
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "nonce",
+          "name": "nonceKey",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "nonceSequence",
           "type": "uint256"
         },
         {
@@ -154,7 +160,13 @@ const Rip7560AbiJson = `
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "nonce",
+          "name": "nonceKey",
+          "type": "uint256"
+        },
+{
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "nonceSequence",
           "type": "uint256"
         },
         {
@@ -165,6 +177,31 @@ const Rip7560AbiJson = `
         }
       ],
       "name": "RIP7560TransactionPostOpRevertReason",
+      "type": "event"
+    },
+	{
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "paymaster",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "deployer",
+          "type": "address"
+        }
+      ],
+      "name": "RIP7560AccountDeployed",
       "type": "event"
     }
 ]`

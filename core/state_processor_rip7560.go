@@ -485,6 +485,12 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	if err != nil {
 		return nil, err
 	}
+	if aatx.Deployer != nil {
+		err = injectRIP7560AccountDeployedEvent(aatx, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if executionResult.Failed() {
 		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
 		if err != nil {
@@ -520,6 +526,22 @@ func injectRIP7560TransactionEvent(
 	statedb *state.StateDB,
 ) error {
 	topics, data, err := abiEncodeRIP7560TransactionEvent(aatx, executionStatus)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560AccountDeployedEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560AccountDeployedEvent(aatx)
 	if err != nil {
 		return err
 	}
