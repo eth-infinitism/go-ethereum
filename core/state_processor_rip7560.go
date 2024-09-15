@@ -318,6 +318,10 @@ func ApplyRip7560ValidationPhases(
 		GasPrice: gasPrice,
 	}
 	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
+	rules := evm.ChainConfig().Rules(evm.Context.BlockNumber, evm.Context.Random != nil, evm.Context.Time)
+
+	statedb.Prepare(rules, *sender, evm.Context.Coinbase, &AA_ENTRY_POINT, vm.ActivePrecompiles(rules), tx.AccessList())
+
 	epc := &EntryPointCall{}
 
 	if evm.Config.Tracer == nil {
