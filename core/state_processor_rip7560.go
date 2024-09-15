@@ -576,9 +576,6 @@ func ApplyRip7560ExecutionPhase(
 
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: *usedGas}
 
-	println("ApplyRip7560ExecutionPhase GasUsed", receipt.GasUsed)
-	println("ApplyRip7560ExecutionPhase CumulativeGasUsed", receipt.CumulativeGasUsed)
-
 	receipt.Status = receiptStatus
 
 	refundPayer(vpr, statedb, gasUsed)
