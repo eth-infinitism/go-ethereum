@@ -140,8 +140,38 @@ func callDataCost(data []byte) uint64 {
 	return nz*params.TxDataNonZeroGasEIP2028 + z*params.TxDataZeroGas
 }
 
-func (tx *Rip7560AccountAbstractionTx) CallDataGasCost() (uint64, error) {
-	return sumGas(callDataCost(tx.DeployerData), callDataCost(tx.ExecutionData), callDataCost(tx.PaymasterData))
+func (tx *Rip7560AccountAbstractionTx) PreTransactionGasCost() (uint64, error) {
+	calldataGasCost, err := tx.callDataGasCost()
+	if err != nil {
+		return 0, err
+	}
+	accessListGasCost := tx.accessListGasCost()
+	eip7702CodeInsertionsGasCost := tx.eip7702CodeInsertionsGasCost()
+	return params.Rip7560TxGas + calldataGasCost + accessListGasCost + eip7702CodeInsertionsGasCost, nil
+}
+
+func (tx *Rip7560AccountAbstractionTx) callDataGasCost() (uint64, error) {
+	return sumGas(
+		callDataCost(tx.AuthorizationData),
+		callDataCost(tx.DeployerData),
+		callDataCost(tx.ExecutionData),
+		callDataCost(tx.PaymasterData),
+	)
+}
+
+// note: copied from state_transition.go 'IntrinsicGas' function
+func (tx *Rip7560AccountAbstractionTx) accessListGasCost() uint64 {
+	if tx.AccessList == nil {
+		return 0
+	}
+	gas := uint64(len(tx.AccessList)) * params.TxAccessListAddressGas
+	gas += uint64(tx.AccessList.StorageKeys()) * params.TxAccessListStorageKeyGas
+	return gas
+}
+
+// note: this function must be implemented if EIP-7702 transactions are enabled
+func (tx *Rip7560AccountAbstractionTx) eip7702CodeInsertionsGasCost() uint64 {
+	return 0
 }
 
 func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
