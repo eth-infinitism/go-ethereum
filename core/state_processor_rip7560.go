@@ -117,13 +117,14 @@ func HandleRip7560Transactions(
 	bc ChainContext,
 	cfg vm.Config,
 	skipInvalid bool,
+	usedGas *uint64,
 ) ([]*types.Transaction, types.Receipts, []*types.Rip7560TransactionDebugInfo, []*types.Log, error) {
 	validatedTransactions := make([]*types.Transaction, 0)
 	receipts := make([]*types.Receipt, 0)
 	allLogs := make([]*types.Log, 0)
 
 	iTransactions, iReceipts, validationFailureReceipts, iLogs, err := handleRip7560Transactions(
-		transactions, index, statedb, coinbase, header, gp, chainConfig, bc, cfg, skipInvalid,
+		transactions, index, statedb, coinbase, header, gp, chainConfig, bc, cfg, skipInvalid, usedGas,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -145,6 +146,7 @@ func handleRip7560Transactions(
 	bc ChainContext,
 	cfg vm.Config,
 	skipInvalid bool,
+	usedGas *uint64,
 ) ([]*types.Transaction, types.Receipts, []*types.Rip7560TransactionDebugInfo, []*types.Log, error) {
 	validationPhaseResults := make([]*ValidationPhaseResult, 0)
 	validatedTransactions := make([]*types.Transaction, 0)
@@ -190,7 +192,7 @@ func handleRip7560Transactions(
 		// TODO: this will miss all validation phase events - pass in 'vpr'
 		// statedb.SetTxContext(vpr.Tx.Hash(), i)
 
-		receipt, err := ApplyRip7560ExecutionPhase(chainConfig, vpr, bc, coinbase, gp, statedb, header, cfg)
+		receipt, err := ApplyRip7560ExecutionPhase(chainConfig, vpr, bc, coinbase, gp, statedb, header, cfg, usedGas)
 
 		if err != nil {
 			return nil, nil, nil, nil, err
@@ -314,6 +316,10 @@ func ApplyRip7560ValidationPhases(
 		GasPrice: gasPrice,
 	}
 	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
+	rules := evm.ChainConfig().Rules(evm.Context.BlockNumber, evm.Context.Random != nil, evm.Context.Time)
+
+	statedb.Prepare(rules, *sender, evm.Context.Coinbase, &AA_ENTRY_POINT, vm.ActivePrecompiles(rules), tx.AccessList())
+
 	epc := &EntryPointCall{}
 
 	if evm.Config.Tracer == nil {
@@ -505,6 +511,7 @@ func ApplyRip7560ExecutionPhase(
 	statedb *state.StateDB,
 	header *types.Header,
 	cfg vm.Config,
+	usedGas *uint64,
 ) (*types.Receipt, error) {
 
 	blockContext := NewEVMBlockContext(header, bc, author)
@@ -584,7 +591,10 @@ func ApplyRip7560ExecutionPhase(
 		}
 	}
 
-	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
+	// TODO: naming convention hell!!! 'usedGas' is 'CumulativeGasUsed' in block processing
+	*usedGas += gasUsed
+
+	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: *usedGas}
 
 	receipt.Status = receiptStatus
 
