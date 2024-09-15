@@ -496,9 +496,18 @@ func capRefund(getRefund uint64, gasUsed uint64) uint64 {
 	return refund
 }
 
-func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhaseResult, bc ChainContext, coinbase *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, cfg vm.Config) (*types.Receipt, error) {
+func ApplyRip7560ExecutionPhase(
+	config *params.ChainConfig,
+	vpr *ValidationPhaseResult,
+	bc ChainContext,
+	author *common.Address,
+	gp *GasPool,
+	statedb *state.StateDB,
+	header *types.Header,
+	cfg vm.Config,
+) (*types.Receipt, error) {
 
-	blockContext := NewEVMBlockContext(header, bc, coinbase)
+	blockContext := NewEVMBlockContext(header, bc, author)
 	aatx := vpr.Tx.Rip7560TransactionData()
 	sender := aatx.Sender
 	txContext := vm.TxContext{
