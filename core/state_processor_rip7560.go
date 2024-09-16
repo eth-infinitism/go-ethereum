@@ -7,7 +7,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
-	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -434,9 +433,6 @@ func ApplyRip7560ValidationPhases(
 		return nil, err
 	}
 
-	//this is the value to refund, but we refund at the end, after execution.
-	// we COULD refund here (and thus restore unused gas to the gaspool),and that would allow more TXs to be included in a block,
-	// but that would require a more complex refund mechanism: splitting evm refund from excessive prefund refund.
 	gasRefund := st.state.GetRefund()
 
 	vpr := &ValidationPhaseResult{
@@ -704,12 +700,10 @@ func payCoinbase(st *StateTransition, msg *types.Rip7560AccountAbstractionTx, ga
 
 	effectiveTip := msg.GasTipCap
 	if rules.IsLondon {
-		effectiveTip = cmath.BigMin(msg.GasTipCap, new(big.Int).Sub(msg.GasFeeCap, st.evm.Context.BaseFee))
+		effectiveTip = math.BigMin(msg.GasTipCap, new(big.Int).Sub(msg.GasFeeCap, st.evm.Context.BaseFee))
 	}
 
 	effectiveTipU256, _ := uint256.FromBig(effectiveTip)
-
-	fmt.Printf("=== paying coinbase %v gasUsed %v effectiveTip %v\n", st.evm.Context.Coinbase.Hex(), gasUsed, effectiveTipU256)
 
 	if st.evm.Config.NoBaseFee && msg.GasFeeCap.Sign() == 0 && msg.GasTipCap.Sign() == 0 {
 		// Skip fee payment when NoBaseFee is set and the fee fields
