@@ -65,6 +65,14 @@ func (v *ValidationPhaseError) ErrorData() interface{} {
 	return v.reason
 }
 
+// wrapError creates a revertError instance for validation errors not caused by an on-chain revert
+func wrapError(
+	innerErr error,
+) *ValidationPhaseError {
+	return newValidationPhaseError(innerErr, nil, nil, false)
+
+}
+
 // newValidationPhaseError creates a revertError instance with the provided revert data.
 func newValidationPhaseError(
 	innerErr error,
@@ -258,7 +266,7 @@ func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionT
 
 func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
 	if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
-		return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil, false)
+		return 0, wrapError(fmt.Errorf("RIP-7712 nonce is disabled"))
 	}
 	nonceManagerMessageData := prepareNonceManagerMessage(tx)
 	resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessageData, st.gasRemaining)
@@ -300,12 +308,16 @@ func ApplyRip7560ValidationPhases(
 	cfg vm.Config,
 ) (*ValidationPhaseResult, error) {
 	aatx := tx.Rip7560TransactionData()
+	err := performStaticValidation(aatx, statedb)
+	if err != nil {
+		return nil, wrapError(err)
+	}
 
 	gasPrice := aatx.EffectiveGasPrice(header.BaseFee)
 	effectiveGasPrice := uint256.MustFromBig(gasPrice)
 	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, wrapError(err)
 	}
 
 	blockContext := NewEVMBlockContext(header, bc, coinbase)
@@ -342,16 +354,8 @@ func ApplyRip7560ValidationPhases(
 	st.gasRemaining = gasLimit
 
 	preTransactionGasCost, err := aatx.PreTransactionGasCost()
-	if preTransactionGasCost > aatx.ValidationGasLimit {
-		return nil, newValidationPhaseError(
-			fmt.Errorf(
-				"insufficient ValidationGasLimit(%d) to cover PreTransactionGasCost(%d)",
-				aatx.ValidationGasLimit, preTransactionGasCost,
-			),
-			nil,
-			nil,
-			false,
-		)
+	if err != nil {
+		return nil, err
 	}
 
 	/*** Nonce Manager Frame ***/
@@ -363,9 +367,6 @@ func ApplyRip7560ValidationPhases(
 	/*** Deployer Frame ***/
 	var deploymentUsedGas uint64
 	if aatx.Deployer != nil {
-		if statedb.GetCodeSize(*sender) != 0 {
-			return nil, fmt.Errorf("account deployment failed: already deployed")
-		}
 		deployerGasLimit := aatx.ValidationGasLimit - preTransactionGasCost
 		resultDeployer := CallFrame(st, &AA_SENDER_CREATOR, aatx.Deployer, aatx.DeployerData, deployerGasLimit)
 		if resultDeployer.Failed() {
@@ -377,20 +378,14 @@ func ApplyRip7560ValidationPhases(
 			)
 		}
 		if statedb.GetCodeSize(*sender) == 0 {
-			return nil, newValidationPhaseError(
+			return nil, wrapError(
 				fmt.Errorf(
-					"sender not deployed by factory, sender:%s factory:%s",
+					"sender not deployed by the deployer, sender:%s deployer:%s",
 					sender.String(), aatx.Deployer.String(),
-				), nil, nil, false)
+				))
 		}
 		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
-		if statedb.GetCodeSize(*sender) == 0 {
-			return nil, newValidationPhaseError(
-				fmt.Errorf(
-					"account is not deployed and no factory is specified, account:%s", sender.String(),
-				), nil, nil, false)
-		}
 		if !aatx.IsRip7712Nonce() {
 			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
 		}
@@ -401,7 +396,7 @@ func ApplyRip7560ValidationPhases(
 	signingHash := signer.Hash(tx)
 	accountValidationMsg, err := prepareAccountValidationMessage(aatx, signingHash)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, wrapError(err)
 	}
 	accountGasLimit := aatx.ValidationGasLimit - preTransactionGasCost - deploymentUsedGas
 	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg, accountGasLimit)
@@ -415,7 +410,7 @@ func ApplyRip7560ValidationPhases(
 	}
 	aad, err := validateAccountEntryPointCall(epc, aatx.Sender)
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, wrapError(err)
 	}
 
 	// clear the EntryPoint calls array after parsing
@@ -425,7 +420,7 @@ func ApplyRip7560ValidationPhases(
 
 	err = validateValidityTimeRange(header.Time, aad.ValidAfter.Uint64(), aad.ValidUntil.Uint64())
 	if err != nil {
-		return nil, newValidationPhaseError(err, nil, nil, false)
+		return nil, wrapError(err)
 	}
 
 	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, signingHash, header)
@@ -457,13 +452,103 @@ func ApplyRip7560ValidationPhases(
 	return vpr, nil
 }
 
+func performStaticValidation(
+	aatx *types.Rip7560AccountAbstractionTx,
+	statedb *state.StateDB,
+) error {
+	hasPaymaster := aatx.Paymaster != nil
+	hasPaymasterData := aatx.PaymasterData != nil && len(aatx.PaymasterData) != 0
+	hasPaymasterGasLimit := aatx.PaymasterValidationGasLimit != 0
+	hasDeployer := aatx.Deployer != nil
+	hasDeployerData := aatx.DeployerData != nil && len(aatx.DeployerData) != 0
+	hasCodeSender := statedb.GetCodeSize(*aatx.Sender) != 0
+
+	if !hasDeployer && hasDeployerData {
+		return wrapError(
+			fmt.Errorf(
+				"deployer data of size %d is provided but deployer address is not set",
+				len(aatx.DeployerData),
+			),
+		)
+	}
+	if !hasPaymaster && (hasPaymasterData || hasPaymasterGasLimit) {
+		return wrapError(
+			fmt.Errorf(
+				"paymaster data of size %d (or a gas limit: %d) is provided but paymaster address is not set",
+				len(aatx.DeployerData),
+				aatx.PaymasterValidationGasLimit,
+			),
+		)
+	}
+
+	if hasPaymaster {
+		if !hasPaymasterGasLimit {
+			return wrapError(
+				fmt.Errorf(
+					"paymaster address  %s is provided but 'paymasterVerificationGasLimit' is zero",
+					aatx.Paymaster.String(),
+				),
+			)
+		}
+		hasCodePaymaster := statedb.GetCodeSize(*aatx.Paymaster) != 0
+		if !hasCodePaymaster {
+			return wrapError(
+				fmt.Errorf(
+					"paymaster address %s is provided but contract has no code deployed",
+					aatx.Paymaster.String(),
+				),
+			)
+		}
+	}
+
+	if hasDeployer {
+		hasCodeDeployer := statedb.GetCodeSize(*aatx.Deployer) != 0
+		if !hasCodeDeployer {
+			return wrapError(
+				fmt.Errorf(
+					"deployer address %s is provided but contract has no code deployed",
+					aatx.Deployer.String(),
+				),
+			)
+		}
+		if hasCodeSender {
+			return wrapError(
+				fmt.Errorf(
+					"sender address %s and deployer address %s are provided but sender is already deployed",
+					aatx.Sender.String(),
+					aatx.Deployer.String(),
+				))
+		}
+	}
+
+	preTransactionGasCost, _ := aatx.PreTransactionGasCost()
+	if preTransactionGasCost > aatx.ValidationGasLimit {
+		return wrapError(
+			fmt.Errorf(
+				"insufficient ValidationGasLimit(%d) to cover PreTransactionGasCost(%d)",
+				aatx.ValidationGasLimit, preTransactionGasCost,
+			),
+		)
+	}
+
+	if !hasDeployer && !hasCodeSender {
+		return wrapError(
+			fmt.Errorf(
+				"account is not deployed and no deployer is specified, account:%s", aatx.Sender.String(),
+			),
+		)
+	}
+
+	return nil
+}
+
 func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	aatx := tx.Rip7560TransactionData()
 	var pmValidationUsedGas uint64
 	paymasterMsg, err := preparePaymasterValidationMessage(aatx, signingHash)
 	if err != nil {
-		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil, false)
+		return nil, 0, 0, 0, wrapError(err)
 	}
 	if paymasterMsg == nil {
 		return nil, 0, 0, 0, nil
@@ -481,11 +566,19 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 	pmValidationUsedGas = resultPm.UsedGas
 	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster)
 	if err != nil {
-		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil, false)
+		return nil, 0, 0, 0, wrapError(err)
 	}
 	err = validateValidityTimeRange(header.Time, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64())
 	if err != nil {
-		return nil, 0, 0, 0, newValidationPhaseError(err, nil, nil, false)
+		return nil, 0, 0, 0, wrapError(err)
+	}
+	if len(apd.Context) > 0 && aatx.PostOpGas == 0 {
+		return nil, 0, 0, 0, wrapError(
+			fmt.Errorf(
+				"paymaster returned a context of size %d but the paymasterPostOpGasLimit is 0",
+				len(apd.Context),
+			),
+		)
 	}
 	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
