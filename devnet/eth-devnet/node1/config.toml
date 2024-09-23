@@ -23,7 +23,10 @@ VMTraceJsonConfig = ""
 RPCGasCap = 50000000
 RPCEVMTimeout = 5000000000
 RPCTxFeeCap = 1e+00
-Rip7560PullUrls = []
+Rip7560MaxBundleSize = 0
+Rip7560MaxBundleGas = 0
+Rip7560PullUrls = ["http://localhost:3001/rpc"]
+Rip7560AcceptPush = false
 
 [Eth.Miner]
 GasCeil = 30000000

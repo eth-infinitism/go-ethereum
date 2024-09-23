@@ -6,9 +6,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (required for Bundler)
-#RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-#    apt-get install -y nodejs && \
-#    npm install -g yarn
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g yarn
 
 # Set working directory
 WORKDIR /app
@@ -29,10 +29,10 @@ RUN chmod +x geth \
                start.sh
 
 # Clone and set up Bundler
-#RUN git clone https://github.com/eth-infinitism/bundler.git /app/bundler && \
-#    cd /app/bundler && \
-#    yarn install --ignore-engines && \
-#    yarn preprocess
+RUN git clone https://github.com/eth-infinitism/bundler.git /app/bundler && \
+    cd /app/bundler && \
+    yarn install --ignore-engines && \
+    yarn preprocess
 
 # Expose necessary ports (common ports; actual mapping happens in docker-compose)
 EXPOSE 8545 8546 8551 6060 30303 30304 \

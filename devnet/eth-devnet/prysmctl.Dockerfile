@@ -15,12 +15,9 @@ WORKDIR /app
 
 # Copy the prysmctl binary and your script into the container
 COPY prysmctl-v5.1.0-linux-amd64 /app/
-COPY scripts/generate-genesis.sh /app/scripts/
-COPY scripts/genesis.json.template /app/scripts/
-COPY scripts/config.yml /app/scripts/
 
 # Make the binary and script executable
-RUN chmod +x /app/prysmctl-v5.1.0-linux-amd64 /app/scripts/generate-genesis.sh
+RUN chmod +x /app/prysmctl-v5.1.0-linux-amd64
 
 # Define the command to run the script
 CMD ["/app/prysmctl-v5.1.0-linux-amd64"]

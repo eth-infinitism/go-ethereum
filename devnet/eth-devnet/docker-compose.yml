@@ -6,6 +6,7 @@ services:
       dockerfile: prysmctl.Dockerfile
     container_name: prysmctl-generate-genesis
     volumes:
+      - ./scripts/:/app/scripts
       - ./node1/data:/app/node1/data
       - ./node2/data:/app/node2/data
     command: ["/app/scripts/generate-genesis.sh"]

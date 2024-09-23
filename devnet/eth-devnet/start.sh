@@ -134,5 +134,12 @@ sleep 5
   --graffiti "$NODE_IDENTITY" \
   --chain-config-file "$CONFIG_YML" > "$DATA_DIR/logs/validator.log" 2>&1 &
 
+#sleep 15
+
+# Start Bundler
+#echo "Starting Bundler..."
+#cd /app/bundler/
+#yarn bundler-rip7560 > /data/logs/bundler.log 2>&1
+
 # Keep the container running
 tail -f /dev/null

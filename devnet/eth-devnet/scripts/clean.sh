@@ -8,4 +8,4 @@ cd ..
 
 docker-compose kill node1 node2
 sudo rm -rf node{1,2}/data/*
-rm ./scripts/genesis.ssz ./scripts/genesis.prysm.json
+rm -f ./scripts/genesis.ssz ./scripts/genesis.prysm.json
