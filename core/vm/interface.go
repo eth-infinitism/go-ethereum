@@ -20,6 +20,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -43,6 +44,9 @@ type StateDB interface {
 	GetCode(common.Address) []byte
 	SetCode(common.Address, []byte)
 	GetCodeSize(common.Address) int
+
+	ResolveCodeHash(common.Address) common.Hash
+	ResolveCode(common.Address) []byte
 
 	AddRefund(uint64)
 	SubRefund(uint64)
@@ -87,6 +91,8 @@ type StateDB interface {
 
 	AddLog(*types.Log)
 	AddPreimage(common.Hash, []byte)
+
+	Witness() *stateless.Witness
 }
 
 // CallContext provides a basic interface for the EVM calling conventions. The EVM

@@ -83,7 +83,7 @@ func genValueTx(nbytes int) func(int, *BlockGen) {
 	return func(i int, gen *BlockGen) {
 		toaddr := common.Address{}
 		data := make([]byte, nbytes)
-		gas, _ := IntrinsicGas(data, nil, false, false, false, false)
+		gas, _ := IntrinsicGas(data, nil, nil, false, false, false, false)
 		signer := gen.Signer()
 		gasPrice := big.NewInt(0)
 		if gen.header.BaseFee != nil {
@@ -195,7 +195,7 @@ func benchInsertChain(b *testing.B, disk bool, gen func(int, *BlockGen)) {
 
 	// Time the insertion of the new chain.
 	// State and blocks are stored in the same DB.
-	chainman, _ := NewBlockChain(db, nil, gspec, nil, ethash.NewFaker(), vm.Config{}, nil, nil)
+	chainman, _ := NewBlockChain(db, nil, gspec, nil, ethash.NewFaker(), vm.Config{}, nil)
 	defer chainman.Stop()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -312,7 +312,7 @@ func benchReadChain(b *testing.B, full bool, count uint64) {
 		if err != nil {
 			b.Fatalf("error opening database at %v: %v", dir, err)
 		}
-		chain, err := NewBlockChain(db, &cacheConfig, genesis, nil, ethash.NewFaker(), vm.Config{}, nil, nil)
+		chain, err := NewBlockChain(db, &cacheConfig, genesis, nil, ethash.NewFaker(), vm.Config{}, nil)
 		if err != nil {
 			b.Fatalf("error creating chain: %v", err)
 		}

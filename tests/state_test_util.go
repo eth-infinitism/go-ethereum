@@ -123,6 +123,7 @@ type stTransaction struct {
 	Sender               *common.Address     `json:"sender"`
 	BlobVersionedHashes  []common.Hash       `json:"blobVersionedHashes,omitempty"`
 	BlobGasFeeCap        *big.Int            `json:"maxFeePerBlobGas,omitempty"`
+	AuthorizationList    []*stAuthorization  `json:"authorizationList,omitempty"`
 }
 
 type stTransactionMarshaling struct {
@@ -133,6 +134,28 @@ type stTransactionMarshaling struct {
 	GasLimit             []math.HexOrDecimal64
 	PrivateKey           hexutil.Bytes
 	BlobGasFeeCap        *math.HexOrDecimal256
+}
+
+//go:generate go run github.com/fjl/gencodec -type stAuthorization -field-override stAuthorizationMarshaling -out gen_stauthorization.go
+
+// Authorization is an authorization from an account to deploy code at it's
+// address.
+type stAuthorization struct {
+	ChainID *big.Int
+	Address common.Address `json:"address" gencodec:"required"`
+	Nonce   uint64         `json:"nonce" gencodec:"required"`
+	V       *big.Int       `json:"v" gencodec:"required"`
+	R       *big.Int       `json:"r" gencodec:"required"`
+	S       *big.Int       `json:"s" gencodec:"required"`
+}
+
+// field type overrides for gencodec
+type stAuthorizationMarshaling struct {
+	ChainID *math.HexOrDecimal256
+	Nonce   math.HexOrDecimal64
+	V       *math.HexOrDecimal256
+	R       *math.HexOrDecimal256
+	S       *math.HexOrDecimal256
 }
 
 // GetChainConfig takes a fork definition and returns a chain config.
@@ -222,7 +245,7 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config, snapshotter bo
 	if logs := rlpHash(st.StateDB.Logs()); logs != common.Hash(post.Logs) {
 		return fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
 	}
-	st.StateDB, _ = state.New(root, st.StateDB.Database(), st.Snapshots)
+	st.StateDB, _ = state.New(root, st.StateDB.Database())
 	return nil
 }
 
@@ -297,19 +320,17 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 
 	if tracer := vmconfig.Tracer; tracer != nil && tracer.OnTxStart != nil {
 		tracer.OnTxStart(evm.GetVMContext(), nil, msg.From)
-		if evm.Config.Tracer.OnTxEnd != nil {
-			defer func() {
-				evm.Config.Tracer.OnTxEnd(nil, err)
-			}()
-		}
 	}
 	// Execute the message.
 	snapshot := st.StateDB.Snapshot()
 	gaspool := new(core.GasPool)
 	gaspool.AddGas(block.GasLimit())
-	_, err = core.ApplyMessage(evm, msg, gaspool)
+	vmRet, err := core.ApplyMessage(evm, msg, gaspool)
 	if err != nil {
 		st.StateDB.RevertToSnapshot(snapshot)
+		if tracer := evm.Config.Tracer; tracer != nil && tracer.OnTxEnd != nil {
+			evm.Config.Tracer.OnTxEnd(nil, err)
+		}
 	}
 	// Add 0-value mining reward. This only makes a difference in the cases
 	// where
@@ -320,6 +341,10 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 
 	// Commit state mutations into database.
 	root, _ = st.StateDB.Commit(block.NumberU64(), config.IsEIP158(block.Number()))
+	if tracer := evm.Config.Tracer; tracer != nil && tracer.OnTxEnd != nil {
+		receipt := &types.Receipt{GasUsed: vmRet.UsedGas}
+		tracer.OnTxEnd(receipt, nil)
+	}
 	return st, root, err
 }
 
@@ -415,6 +440,24 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (*core.Mess
 	if gasPrice == nil {
 		return nil, errors.New("no gas price provided")
 	}
+	var authList types.AuthorizationList
+	if tx.AuthorizationList != nil {
+		authList = make(types.AuthorizationList, 0)
+		for _, auth := range tx.AuthorizationList {
+			chainID := auth.ChainID
+			if chainID == nil {
+				chainID = big.NewInt(0)
+			}
+			authList = append(authList, &types.Authorization{
+				ChainID: chainID,
+				Address: auth.Address,
+				Nonce:   auth.Nonce,
+				V:       auth.V,
+				R:       auth.R,
+				S:       auth.S,
+			})
+		}
+	}
 
 	msg := &core.Message{
 		From:          from,
@@ -429,6 +472,7 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (*core.Mess
 		AccessList:    accessList,
 		BlobHashes:    tx.BlobVersionedHashes,
 		BlobGasFeeCap: tx.BlobGasFeeCap,
+		AuthList:      authList,
 	}
 	return msg, nil
 }
@@ -460,8 +504,8 @@ func MakePreState(db ethdb.Database, accounts types.GenesisAlloc, snapshotter bo
 		tconf.PathDB = pathdb.Defaults
 	}
 	triedb := triedb.NewDatabase(db, tconf)
-	sdb := state.NewDatabaseWithNodeDB(db, triedb)
-	statedb, _ := state.New(types.EmptyRootHash, sdb, nil)
+	sdb := state.NewDatabase(triedb, nil)
+	statedb, _ := state.New(types.EmptyRootHash, sdb)
 	for addr, a := range accounts {
 		statedb.SetCode(addr, a.Code)
 		statedb.SetNonce(addr, a.Nonce)
@@ -484,7 +528,8 @@ func MakePreState(db ethdb.Database, accounts types.GenesisAlloc, snapshotter bo
 		}
 		snaps, _ = snapshot.New(snapconfig, db, triedb, root)
 	}
-	statedb, _ = state.New(root, sdb, snaps)
+	sdb = state.NewDatabase(triedb, snaps)
+	statedb, _ = state.New(root, sdb)
 	return StateTestState{statedb, triedb, snaps}
 }
 

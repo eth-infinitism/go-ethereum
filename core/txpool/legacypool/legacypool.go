@@ -38,6 +38,7 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -277,7 +278,7 @@ func New(config Config, chain BlockChain) *LegacyPool {
 // pool, specifically, whether it is a Legacy, AccessList or Dynamic transaction.
 func (pool *LegacyPool) Filter(tx *types.Transaction) bool {
 	switch tx.Type() {
-	case types.LegacyTxType, types.AccessListTxType, types.DynamicFeeTxType:
+	case types.SetCodeTxType, types.LegacyTxType, types.AccessListTxType, types.DynamicFeeTxType:
 		return true
 	default:
 		return false
@@ -609,7 +610,8 @@ func (pool *LegacyPool) validateTxBasics(tx *types.Transaction, local bool) erro
 		Accept: 0 |
 			1<<types.LegacyTxType |
 			1<<types.AccessListTxType |
-			1<<types.DynamicFeeTxType,
+			1<<types.DynamicFeeTxType |
+			1<<types.SetCodeTxType,
 		MaxSize: txMaxSize,
 		MinTip:  pool.gasTip.Load().ToBig(),
 	}
@@ -1717,7 +1719,7 @@ func (a addressesByHeartbeat) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 type accountSet struct {
 	accounts map[common.Address]struct{}
 	signer   types.Signer
-	cache    *[]common.Address
+	cache    []common.Address
 }
 
 // newAccountSet creates a new address set with an associated signer for sender
@@ -1765,20 +1767,14 @@ func (as *accountSet) addTx(tx *types.Transaction) {
 // reuse. The returned slice should not be changed!
 func (as *accountSet) flatten() []common.Address {
 	if as.cache == nil {
-		accounts := make([]common.Address, 0, len(as.accounts))
-		for account := range as.accounts {
-			accounts = append(accounts, account)
-		}
-		as.cache = &accounts
+		as.cache = maps.Keys(as.accounts)
 	}
-	return *as.cache
+	return as.cache
 }
 
 // merge adds all addresses from the 'other' set into 'as'.
 func (as *accountSet) merge(other *accountSet) {
-	for addr := range other.accounts {
-		as.accounts[addr] = struct{}{}
-	}
+	maps.Copy(as.accounts, other.accounts)
 	as.cache = nil
 }
 

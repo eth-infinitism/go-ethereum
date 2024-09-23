@@ -74,6 +74,14 @@ func generateMergeChain(n int, merged bool) (*core.Genesis, []*types.Block) {
 		Alloc: types.GenesisAlloc{
 			testAddr:                  {Balance: testBalance},
 			params.BeaconRootsAddress: {Balance: common.Big0, Code: common.Hex2Bytes("3373fffffffffffffffffffffffffffffffffffffffe14604457602036146024575f5ffd5b620180005f350680545f35146037575f5ffd5b6201800001545f5260205ff35b6201800042064281555f359062018000015500")},
+			config.DepositContractAddress: {
+				// Simple deposit generator, source: https://gist.github.com/lightclient/54abb2af2465d6969fa6d1920b9ad9d7
+				Code:    common.Hex2Bytes("6080604052366103aa575f603067ffffffffffffffff811115610025576100246103ae565b5b6040519080825280601f01601f1916602001820160405280156100575781602001600182028036833780820191505090505b5090505f8054906101000a900460ff1660f81b815f8151811061007d5761007c6103db565b5b60200101907effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff191690815f1a9053505f602067ffffffffffffffff8111156100c7576100c66103ae565b5b6040519080825280601f01601f1916602001820160405280156100f95781602001600182028036833780820191505090505b5090505f8054906101000a900460ff1660f81b815f8151811061011f5761011e6103db565b5b60200101907effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff191690815f1a9053505f600867ffffffffffffffff811115610169576101686103ae565b5b6040519080825280601f01601f19166020018201604052801561019b5781602001600182028036833780820191505090505b5090505f8054906101000a900460ff1660f81b815f815181106101c1576101c06103db565b5b60200101907effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff191690815f1a9053505f606067ffffffffffffffff81111561020b5761020a6103ae565b5b6040519080825280601f01601f19166020018201604052801561023d5781602001600182028036833780820191505090505b5090505f8054906101000a900460ff1660f81b815f81518110610263576102626103db565b5b60200101907effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff191690815f1a9053505f600867ffffffffffffffff8111156102ad576102ac6103ae565b5b6040519080825280601f01601f1916602001820160405280156102df5781602001600182028036833780820191505090505b5090505f8054906101000a900460ff1660f81b815f81518110610305576103046103db565b5b60200101907effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff191690815f1a9053505f8081819054906101000a900460ff168092919061035090610441565b91906101000a81548160ff021916908360ff160217905550507f649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c585858585856040516103a09594939291906104d9565b60405180910390a1005b5f80fd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52603260045260245ffd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f60ff82169050919050565b5f61044b82610435565b915060ff820361045e5761045d610408565b5b600182019050919050565b5f81519050919050565b5f82825260208201905092915050565b8281835e5f83830152505050565b5f601f19601f8301169050919050565b5f6104ab82610469565b6104b58185610473565b93506104c5818560208601610483565b6104ce81610491565b840191505092915050565b5f60a0820190508181035f8301526104f181886104a1565b9050818103602083015261050581876104a1565b9050818103604083015261051981866104a1565b9050818103606083015261052d81856104a1565b9050818103608083015261054181846104a1565b9050969550505050505056fea26469706673582212208569967e58690162d7d6fe3513d07b393b4c15e70f41505cbbfd08f53eba739364736f6c63430008190033"),
+				Nonce:   0,
+				Balance: big.NewInt(0),
+			},
+			params.WithdrawalRequestsAddress:    {Code: common.FromHex("3373fffffffffffffffffffffffffffffffffffffffe146090573615156028575f545f5260205ff35b366038141561012e5760115f54600182026001905f5b5f82111560595781019083028483029004916001019190603e565b90939004341061012e57600154600101600155600354806003026004013381556001015f3581556001016020359055600101600355005b6003546002548082038060101160a4575060105b5f5b81811460dd5780604c02838201600302600401805490600101805490600101549160601b83528260140152906034015260010160a6565b910180921460ed579060025560f8565b90505f6002555f6003555b5f548061049d141561010757505f5b60015460028282011161011c5750505f610122565b01600290035b5f555f600155604c025ff35b5f5ffd")},
+			params.ConsolidationRequestsAddress: {Code: common.FromHex("3373fffffffffffffffffffffffffffffffffffffffe146098573615156028575f545f5260205ff35b36606014156101445760115f54600182026001905f5b5f82111560595781019083028483029004916001019190603e565b90939004341061014457600154600101600155600354806004026004013381556001015f35815560010160203581556001016040359055600101600355005b6003546002548082038060011160ac575060015b5f5b81811460f15780607402838201600402600401805490600101805490600101805490600101549260601b84529083601401528260340152906054015260010160ae565b9101809214610103579060025561010e565b90505f6002555f6003555b5f548061049d141561011d57505f5b6001546001828201116101325750505f610138565b01600190035b5f555f6001556074025ff35b5f5ffd")},
 		},
 		ExtraData:  []byte("test genesis"),
 		Timestamp:  9000,
@@ -483,10 +491,10 @@ func TestFullAPI(t *testing.T) {
 		ethservice.TxPool().Add([]*types.Transaction{tx}, true, false)
 	}
 
-	setupBlocks(t, ethservice, 10, parent, callback, nil)
+	setupBlocks(t, ethservice, 10, parent, callback, nil, nil)
 }
 
-func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.Header, callback func(parent *types.Header), withdrawals [][]*types.Withdrawal) []*types.Header {
+func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.Header, callback func(parent *types.Header), withdrawals [][]*types.Withdrawal, beaconRoots []common.Hash) []*types.Header {
 	api := NewConsensusAPI(ethservice)
 	var blocks []*types.Header
 	for i := 0; i < n; i++ {
@@ -495,14 +503,18 @@ func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.He
 		if withdrawals != nil {
 			w = withdrawals[i]
 		}
+		var h *common.Hash
+		if beaconRoots != nil {
+			h = &beaconRoots[i]
+		}
 
-		payload := getNewPayload(t, api, parent, w)
-		execResp, err := api.NewPayloadV2(*payload)
+		payload := getNewPayload(t, api, parent, w, h)
+		execResp, err := api.newPayload(*payload, []common.Hash{}, h)
 		if err != nil {
 			t.Fatalf("can't execute payload: %v", err)
 		}
 		if execResp.Status != engine.VALID {
-			t.Fatalf("invalid status: %v", execResp.Status)
+			t.Fatalf("invalid status: %v %s", execResp.Status, *execResp.ValidationError)
 		}
 		fcState := engine.ForkchoiceStateV1{
 			HeadBlockHash:      payload.BlockHash,
@@ -690,10 +702,10 @@ func TestEmptyBlocks(t *testing.T) {
 	api := NewConsensusAPI(ethservice)
 
 	// Setup 10 blocks on the canonical chain
-	setupBlocks(t, ethservice, 10, commonAncestor, func(parent *types.Header) {}, nil)
+	setupBlocks(t, ethservice, 10, commonAncestor, func(parent *types.Header) {}, nil, nil)
 
 	// (1) check LatestValidHash by sending a normal payload (P1'')
-	payload := getNewPayload(t, api, commonAncestor, nil)
+	payload := getNewPayload(t, api, commonAncestor, nil, nil)
 
 	status, err := api.NewPayloadV1(*payload)
 	if err != nil {
@@ -707,7 +719,7 @@ func TestEmptyBlocks(t *testing.T) {
 	}
 
 	// (2) Now send P1' which is invalid
-	payload = getNewPayload(t, api, commonAncestor, nil)
+	payload = getNewPayload(t, api, commonAncestor, nil, nil)
 	payload.GasUsed += 1
 	payload = setBlockhash(payload)
 	// Now latestValidHash should be the common ancestor
@@ -725,7 +737,7 @@ func TestEmptyBlocks(t *testing.T) {
 	}
 
 	// (3) Now send a payload with unknown parent
-	payload = getNewPayload(t, api, commonAncestor, nil)
+	payload = getNewPayload(t, api, commonAncestor, nil, nil)
 	payload.ParentHash = common.Hash{1}
 	payload = setBlockhash(payload)
 	// Now latestValidHash should be the common ancestor
@@ -741,12 +753,13 @@ func TestEmptyBlocks(t *testing.T) {
 	}
 }
 
-func getNewPayload(t *testing.T, api *ConsensusAPI, parent *types.Header, withdrawals []*types.Withdrawal) *engine.ExecutableData {
+func getNewPayload(t *testing.T, api *ConsensusAPI, parent *types.Header, withdrawals []*types.Withdrawal, beaconRoot *common.Hash) *engine.ExecutableData {
 	params := engine.PayloadAttributes{
 		Timestamp:             parent.Time + 1,
 		Random:                crypto.Keccak256Hash([]byte{byte(1)}),
 		SuggestedFeeRecipient: parent.Coinbase,
 		Withdrawals:           withdrawals,
+		BeaconRoot:            beaconRoot,
 	}
 
 	payload, err := assembleBlock(api, parent.Hash(), &params)
@@ -814,7 +827,7 @@ func TestTrickRemoteBlockCache(t *testing.T) {
 	commonAncestor := ethserviceA.BlockChain().CurrentBlock()
 
 	// Setup 10 blocks on the canonical chain
-	setupBlocks(t, ethserviceA, 10, commonAncestor, func(parent *types.Header) {}, nil)
+	setupBlocks(t, ethserviceA, 10, commonAncestor, func(parent *types.Header) {}, nil, nil)
 	commonAncestor = ethserviceA.BlockChain().CurrentBlock()
 
 	var invalidChain []*engine.ExecutableData
@@ -823,7 +836,7 @@ func TestTrickRemoteBlockCache(t *testing.T) {
 	//invalidChain = append(invalidChain, payload1)
 
 	// create an invalid payload2 (P2)
-	payload2 := getNewPayload(t, apiA, commonAncestor, nil)
+	payload2 := getNewPayload(t, apiA, commonAncestor, nil, nil)
 	//payload2.ParentHash = payload1.BlockHash
 	payload2.GasUsed += 1
 	payload2 = setBlockhash(payload2)
@@ -832,7 +845,7 @@ func TestTrickRemoteBlockCache(t *testing.T) {
 	head := payload2
 	// create some valid payloads on top
 	for i := 0; i < 10; i++ {
-		payload := getNewPayload(t, apiA, commonAncestor, nil)
+		payload := getNewPayload(t, apiA, commonAncestor, nil, nil)
 		payload.ParentHash = head.BlockHash
 		payload = setBlockhash(payload)
 		invalidChain = append(invalidChain, payload)
@@ -869,10 +882,10 @@ func TestInvalidBloom(t *testing.T) {
 	api := NewConsensusAPI(ethservice)
 
 	// Setup 10 blocks on the canonical chain
-	setupBlocks(t, ethservice, 10, commonAncestor, func(parent *types.Header) {}, nil)
+	setupBlocks(t, ethservice, 10, commonAncestor, func(parent *types.Header) {}, nil, nil)
 
 	// (1) check LatestValidHash by sending a normal payload (P1'')
-	payload := getNewPayload(t, api, commonAncestor, nil)
+	payload := getNewPayload(t, api, commonAncestor, nil, nil)
 	payload.LogsBloom = append(payload.LogsBloom, byte(1))
 	status, err := api.NewPayloadV1(*payload)
 	if err != nil {
@@ -1285,24 +1298,43 @@ func TestNilWithdrawals(t *testing.T) {
 
 func setupBodies(t *testing.T) (*node.Node, *eth.Ethereum, []*types.Block) {
 	genesis, blocks := generateMergeChain(10, true)
-	// enable shanghai on the last block
+
+	// Enable next forks on the last block.
 	time := blocks[len(blocks)-1].Header().Time + 1
 	genesis.Config.ShanghaiTime = &time
+	genesis.Config.CancunTime = &time
+	genesis.Config.PragueTime = &time
+
 	n, ethservice := startEthService(t, genesis, blocks)
 
 	var (
-		parent = ethservice.BlockChain().CurrentBlock()
 		// This EVM code generates a log when the contract is created.
 		logCode = common.Hex2Bytes("60606040525b7f24ec1d3ff24c2f6ff210738839dbc339cd45a5294d85c79361016243157aae7b60405180905060405180910390a15b600a8060416000396000f360606040526008565b00")
+		parent  = ethservice.BlockChain().CurrentBlock()
 	)
 
+	// Each block, this callback will include two txs that generate body values like logs and requests.
 	callback := func(parent *types.Header) {
-		statedb, _ := ethservice.BlockChain().StateAt(parent.Root)
-		nonce := statedb.GetNonce(testAddr)
-		tx, _ := types.SignTx(types.NewContractCreation(nonce, new(big.Int), 1000000, big.NewInt(2*params.InitialBaseFee), logCode), types.LatestSigner(ethservice.BlockChain().Config()), testKey)
-		ethservice.TxPool().Add([]*types.Transaction{tx}, false, false)
+		if parent.Number.Cmp(big.NewInt(10)) == 0 {
+			// Make a block with empty requests to ensure nil / non-nil distinction is
+			// being maintained.
+			return
+		}
+		var (
+			statedb, _ = ethservice.BlockChain().StateAt(parent.Root)
+			// Create tx to trigger log generator.
+			tx1, _ = types.SignTx(types.NewContractCreation(statedb.GetNonce(testAddr), new(big.Int), 1000000, big.NewInt(2*params.InitialBaseFee), logCode), types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+			// Create tx to trigger deposit generator.
+			tx2, _ = types.SignTx(types.NewTransaction(statedb.GetNonce(testAddr)+1, ethservice.APIBackend.ChainConfig().DepositContractAddress, new(big.Int), 500000, big.NewInt(2*params.InitialBaseFee), nil), types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+			// Create tx to trigger withdrawal request.
+			tx3, _ = types.SignTx(types.NewTransaction(statedb.GetNonce(testAddr)+2, params.WithdrawalRequestsAddress, big.NewInt(42), 500000, big.NewInt(2*params.InitialBaseFee), make([]byte, 56)), types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+			// Create tx to trigger consolidation request.
+			tx4, _ = types.SignTx(types.NewTransaction(statedb.GetNonce(testAddr)+3, params.ConsolidationRequestsAddress, big.NewInt(42), 500000, big.NewInt(2*params.InitialBaseFee), make([]byte, 96)), types.LatestSigner(ethservice.BlockChain().Config()), testKey)
+		)
+		ethservice.TxPool().Add([]*types.Transaction{tx1, tx2, tx3, tx4}, false, false)
 	}
 
+	// Make some withdrawals to include.
 	withdrawals := make([][]*types.Withdrawal, 10)
 	withdrawals[0] = nil // should be filtered out by miner
 	withdrawals[1] = make([]*types.Withdrawal, 0)
@@ -1314,12 +1346,20 @@ func setupBodies(t *testing.T) (*node.Node, *eth.Ethereum, []*types.Block) {
 		}
 	}
 
-	postShanghaiHeaders := setupBlocks(t, ethservice, 10, parent, callback, withdrawals)
-	postShanghaiBlocks := make([]*types.Block, len(postShanghaiHeaders))
-	for i, header := range postShanghaiHeaders {
-		postShanghaiBlocks[i] = ethservice.BlockChain().GetBlock(header.Hash(), header.Number.Uint64())
+	// Make beacon root update for each block.
+	beaconRoots := make([]common.Hash, 10)
+	for i := 0; i < 10; i++ {
+		beaconRoots[i] = common.Hash{byte(i)}
 	}
-	return n, ethservice, append(blocks, postShanghaiBlocks...)
+
+	// Create the blocks.
+	newHeaders := setupBlocks(t, ethservice, 10, parent, callback, withdrawals, beaconRoots)
+	newBlocks := make([]*types.Block, len(newHeaders))
+	for i, header := range newHeaders {
+		newBlocks[i] = ethservice.BlockChain().GetBlock(header.Hash(), header.Number.Uint64())
+	}
+
+	return n, ethservice, append(blocks, newBlocks...)
 }
 
 func allHashes(blocks []*types.Block) []common.Hash {
@@ -1384,7 +1424,7 @@ func TestGetBlockBodiesByHash(t *testing.T) {
 	}
 
 	for k, test := range tests {
-		result := api.GetPayloadBodiesByHashV1(test.hashes)
+		result := api.GetPayloadBodiesByHashV2(test.hashes)
 		for i, r := range result {
 			if !equalBody(test.results[i], r) {
 				t.Fatalf("test %v: invalid response: expected %+v got %+v", k, test.results[i], r)
@@ -1458,7 +1498,7 @@ func TestGetBlockBodiesByRange(t *testing.T) {
 	}
 
 	for k, test := range tests {
-		result, err := api.GetPayloadBodiesByRangeV1(test.start, test.count)
+		result, err := api.GetPayloadBodiesByRangeV2(test.start, test.count)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1509,7 +1549,7 @@ func TestGetBlockBodiesByRangeInvalidParams(t *testing.T) {
 		},
 	}
 	for i, tc := range tests {
-		result, err := api.GetPayloadBodiesByRangeV1(tc.start, tc.count)
+		result, err := api.GetPayloadBodiesByRangeV2(tc.start, tc.count)
 		if err == nil {
 			t.Fatalf("test %d: expected error, got %v", i, result)
 		}
@@ -1519,7 +1559,7 @@ func TestGetBlockBodiesByRangeInvalidParams(t *testing.T) {
 	}
 }
 
-func equalBody(a *types.Body, b *engine.ExecutionPayloadBodyV1) bool {
+func equalBody(a *types.Body, b *engine.ExecutionPayloadBody) bool {
 	if a == nil && b == nil {
 		return true
 	} else if a == nil || b == nil {
@@ -1534,7 +1574,36 @@ func equalBody(a *types.Body, b *engine.ExecutionPayloadBodyV1) bool {
 			return false
 		}
 	}
-	return reflect.DeepEqual(a.Withdrawals, b.Withdrawals)
+
+	if !reflect.DeepEqual(a.Withdrawals, b.Withdrawals) {
+		return false
+	}
+
+	var (
+		dxs types.Deposits
+		wxs types.WithdrawalRequests
+		cxs types.ConsolidationRequests
+	)
+	if a.Requests != nil {
+		// If requests is non-nil, it means deposits are available in block and we
+		// should return an empty slice instead of nil if there are no deposits.
+		dxs = make(types.Deposits, 0)
+		wxs = make(types.WithdrawalRequests, 0)
+		cxs = make(types.ConsolidationRequests, 0)
+	}
+	for _, req := range a.Requests {
+		switch v := req.Inner().(type) {
+		case *types.Deposit:
+			dxs = append(dxs, v)
+		case *types.WithdrawalRequest:
+			wxs = append(wxs, v)
+		case *types.ConsolidationRequest:
+			cxs = append(cxs, v)
+		}
+	}
+	return reflect.DeepEqual(dxs, b.Deposits) &&
+		reflect.DeepEqual(wxs, b.WithdrawalRequests) &&
+		reflect.DeepEqual(cxs, b.ConsolidationRequests)
 }
 
 func TestBlockToPayloadWithBlobs(t *testing.T) {

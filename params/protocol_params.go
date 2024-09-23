@@ -94,6 +94,7 @@ const (
 	TxDataNonZeroGasEIP2028   uint64 = 16   // Per byte of non zero data attached to a transaction after EIP 2028 (part in Istanbul)
 	TxAccessListAddressGas    uint64 = 2400 // Per address specified in EIP 2930 access list
 	TxAccessListStorageKeyGas uint64 = 1900 // Per storage key specified in EIP 2930 access list
+	TxAuthTupleGas            uint64 = 2500 // Per auth tuple code specified in EIP-7702
 
 	// These have been changed during the course of the chain
 	CallGasFrontier              uint64 = 40  // Once per CALL operation & message call transaction.
@@ -174,6 +175,8 @@ const (
 
 	BlobTxTargetBlobGasPerBlock = 3 * BlobTxBlobGasPerBlob // Target consumable blob gas for data blobs per block (for 1559-like pricing)
 	MaxBlobGasPerBlock          = 6 * BlobTxBlobGasPerBlob // Maximum consumable blob gas for data blobs per block
+
+	HistoryServeWindow = 8192 // Number of blocks to serve historical block hashes for, EIP-2935.
 )
 
 // Gas discount table for BLS12-381 G1 and G2 multi exponentiation operations
@@ -187,10 +190,16 @@ var (
 
 	// BeaconRootsAddress is the address where historical beacon roots are stored as per EIP-4788
 	BeaconRootsAddress = common.HexToAddress("0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02")
-
 	// BeaconRootsCode is the code where historical beacon roots are stored as per EIP-4788
 	BeaconRootsCode = common.FromHex("3373fffffffffffffffffffffffffffffffffffffffe14604d57602036146024575f5ffd5b5f35801560495762001fff810690815414603c575f5ffd5b62001fff01545f5260205ff35b5f5ffd5b62001fff42064281555f359062001fff015500")
-
+	// WithdrawalRequests is the address where the EIP-7002 withdrawal requests queue is maintained.
+	WithdrawalRequestsAddress = common.HexToAddress("0x00A3ca265EBcb825B45F985A16CEFB49958cE017")
+	// ConsolidationRequests is the address where the EIP-7251 consolidation requests queue is maintained.
+	ConsolidationRequestsAddress = common.HexToAddress("0x00b42dbF2194e931E80326D950320f7d9Dbeac02")
 	// SystemAddress is where the system-transaction is sent from as per EIP-4788
 	SystemAddress = common.HexToAddress("0xfffffffffffffffffffffffffffffffffffffffe")
+	// HistoryStorageAddress is where the historical block hashes are stored.
+	HistoryStorageAddress = common.HexToAddress("0x0aae40965e6800cd9b1f4b05ff21581047e3f91e")
+	// HistoryStorageCode is the code with getters for historical block hashes.
+	HistoryStorageCode = common.FromHex("3373fffffffffffffffffffffffffffffffffffffffe1460575767ffffffffffffffff5f3511605357600143035f3511604b575f35612000014311604b57611fff5f3516545f5260205ff35b5f5f5260205ff35b5f5ffd5b5f35611fff60014303165500")
 )

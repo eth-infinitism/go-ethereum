@@ -105,7 +105,31 @@ func (miner *Miner) generateWork(params *generateParams) *newPayloadResult {
 			log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.config.Recommit))
 		}
 	}
+
 	body := types.Body{Transactions: work.txs, Withdrawals: params.withdrawals}
+	allLogs := make([]*types.Log, 0)
+	for _, r := range work.receipts {
+		allLogs = append(allLogs, r.Logs...)
+	}
+	// Read requests if Prague is enabled.
+	if miner.chainConfig.IsPrague(work.header.Number, work.header.Time) {
+		// Parse Deposits
+		requests := make([]*types.Request, 0)
+		reqs, err := core.ParseDepositLogs(allLogs, miner.chainConfig)
+		if err != nil {
+			return &newPayloadResult{err: err}
+		}
+		requests = append(requests, reqs...)
+		// Process WithdrawalRequests
+		context := core.NewEVMBlockContext(work.header, miner.chain, nil)
+		vmenv := vm.NewEVM(context, vm.TxContext{}, work.state, miner.chainConfig, vm.Config{})
+		wxs := core.ProcessDequeueWithdrawalRequests(vmenv, work.state)
+		requests = append(requests, wxs...)
+		// Process ConsolidationRequests
+		cxs := core.ProcessDequeueConsolidationRequests(vmenv, work.state)
+		requests = append(requests, cxs...)
+		body.Requests = requests
+	}
 	block, err := miner.engine.FinalizeAndAssemble(miner.chain, work.header, work.state, &body, work.receipts)
 	if err != nil {
 		return &newPayloadResult{err: err}
@@ -200,13 +224,17 @@ func (miner *Miner) prepareWork(genParams *generateParams) (*environment, error)
 		vmenv := vm.NewEVM(context, vm.TxContext{}, env.state, miner.chainConfig, vm.Config{})
 		core.ProcessBeaconBlockRoot(*header.ParentBeaconRoot, vmenv, env.state)
 	}
+	if miner.chainConfig.IsPrague(header.Number, header.Time) {
+		context := core.NewEVMBlockContext(header, miner.chain, nil)
+		vmenv := vm.NewEVM(context, vm.TxContext{}, env.state, miner.chainConfig, vm.Config{})
+		core.ProcessParentBlockHash(header.ParentHash, vmenv, env.state)
+	}
 	return env, nil
 }
 
 // makeEnv creates a new environment for the sealing block.
 func (miner *Miner) makeEnv(parent *types.Header, header *types.Header, coinbase common.Address) (*environment, error) {
-	// Retrieve the parent state to execute on top and start a prefetcher for
-	// the miner to speed block sealing up a bit.
+	// Retrieve the parent state to execute on top.
 	state, err := miner.chain.StateAt(parent.Root)
 	if err != nil {
 		return nil, err

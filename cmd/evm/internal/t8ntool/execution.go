@@ -53,19 +53,23 @@ type Prestate struct {
 // ExecutionResult contains the execution status after running a state test, any
 // error that might have occurred and a dump of the final state if requested.
 type ExecutionResult struct {
-	StateRoot            common.Hash           `json:"stateRoot"`
-	TxRoot               common.Hash           `json:"txRoot"`
-	ReceiptRoot          common.Hash           `json:"receiptsRoot"`
-	LogsHash             common.Hash           `json:"logsHash"`
-	Bloom                types.Bloom           `json:"logsBloom"        gencodec:"required"`
-	Receipts             types.Receipts        `json:"receipts"`
-	Rejected             []*rejectedTx         `json:"rejected,omitempty"`
-	Difficulty           *math.HexOrDecimal256 `json:"currentDifficulty" gencodec:"required"`
-	GasUsed              math.HexOrDecimal64   `json:"gasUsed"`
-	BaseFee              *math.HexOrDecimal256 `json:"currentBaseFee,omitempty"`
-	WithdrawalsRoot      *common.Hash          `json:"withdrawalsRoot,omitempty"`
-	CurrentExcessBlobGas *math.HexOrDecimal64  `json:"currentExcessBlobGas,omitempty"`
-	CurrentBlobGasUsed   *math.HexOrDecimal64  `json:"blobGasUsed,omitempty"`
+	StateRoot             common.Hash                 `json:"stateRoot"`
+	TxRoot                common.Hash                 `json:"txRoot"`
+	ReceiptRoot           common.Hash                 `json:"receiptsRoot"`
+	LogsHash              common.Hash                 `json:"logsHash"`
+	Bloom                 types.Bloom                 `json:"logsBloom"        gencodec:"required"`
+	Receipts              types.Receipts              `json:"receipts"`
+	Rejected              []*rejectedTx               `json:"rejected,omitempty"`
+	Difficulty            *math.HexOrDecimal256       `json:"currentDifficulty" gencodec:"required"`
+	GasUsed               math.HexOrDecimal64         `json:"gasUsed"`
+	BaseFee               *math.HexOrDecimal256       `json:"currentBaseFee,omitempty"`
+	WithdrawalsRoot       *common.Hash                `json:"withdrawalsRoot,omitempty"`
+	CurrentExcessBlobGas  *math.HexOrDecimal64        `json:"currentExcessBlobGas,omitempty"`
+	CurrentBlobGasUsed    *math.HexOrDecimal64        `json:"blobGasUsed,omitempty"`
+	RequestsHash          *common.Hash                `json:"requestsRoot,omitempty"`
+	DepositRequests       types.Deposits              `json:"depositRequests,omitempty"`
+	WithdrawalRequests    types.WithdrawalRequests    `json:"withdrawalRequests,omitempty"`
+	ConsolidationRequests types.ConsolidationRequests `json:"consolidationRequests,omitempty"`
 }
 
 type ommer struct {
@@ -196,7 +200,14 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		evm := vm.NewEVM(vmContext, vm.TxContext{}, statedb, chainConfig, vmConfig)
 		core.ProcessBeaconBlockRoot(*beaconRoot, evm, statedb)
 	}
-
+	if pre.Env.BlockHashes != nil && chainConfig.IsPrague(new(big.Int).SetUint64(pre.Env.Number), pre.Env.Timestamp) {
+		var (
+			prevNumber = pre.Env.Number - 1
+			prevHash   = pre.Env.BlockHashes[math.HexOrDecimal64(prevNumber)]
+			evm        = vm.NewEVM(vmContext, vm.TxContext{}, statedb, chainConfig, vmConfig)
+		)
+		core.ProcessParentBlockHash(prevHash, evm, statedb)
+	}
 	for i := 0; txIt.Next(); i++ {
 		tx, err := txIt.Tx()
 		if err != nil {
@@ -306,7 +317,9 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 				if tracer.Hooks.OnTxEnd != nil {
 					tracer.Hooks.OnTxEnd(receipt, nil)
 				}
-				writeTraceResult(tracer, traceOutput)
+				if err = writeTraceResult(tracer, traceOutput); err != nil {
+					log.Warn("Error writing tracer output", "err", err)
+				}
 			}
 		}
 
@@ -323,7 +336,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		var (
 			blockReward = big.NewInt(miningReward)
 			minerReward = new(big.Int).Set(blockReward)
-			perOmmer    = new(big.Int).Div(blockReward, big.NewInt(32))
+			perOmmer    = new(big.Int).Rsh(blockReward, 5)
 		)
 		for _, ommer := range pre.Env.Ommers {
 			// Add 1/32th for each ommer included
@@ -332,7 +345,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 			reward := big.NewInt(8)
 			reward.Sub(reward, new(big.Int).SetUint64(ommer.Delta))
 			reward.Mul(reward, blockReward)
-			reward.Div(reward, big.NewInt(8))
+			reward.Rsh(reward, 3)
 			statedb.AddBalance(ommer.Address, uint256.MustFromBig(reward), tracing.BalanceIncreaseRewardMineUncle)
 		}
 		statedb.AddBalance(pre.Env.Coinbase, uint256.MustFromBig(minerReward), tracing.BalanceIncreaseRewardMineBlock)
@@ -343,22 +356,69 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		amount := new(big.Int).Mul(new(big.Int).SetUint64(w.Amount), big.NewInt(params.GWei))
 		statedb.AddBalance(w.Address, uint256.MustFromBig(amount), tracing.BalanceIncreaseWithdrawal)
 	}
+	// Retrieve deposit and withdrawal requests
+	var (
+		depositRequests       types.Deposits
+		withdrawalRequests    types.WithdrawalRequests
+		consolidationRequests types.ConsolidationRequests
+		requestsHash          *common.Hash
+	)
+	if chainConfig.IsPrague(vmContext.BlockNumber, vmContext.Time) {
+		// Parse deposit requests from the logs
+		var allLogs []*types.Log
+		for _, receipt := range receipts {
+			allLogs = append(allLogs, receipt.Logs...)
+		}
+		requests, err := core.ParseDepositLogs(allLogs, chainConfig)
+		if err != nil {
+			return nil, nil, nil, NewError(ErrorEVM, fmt.Errorf("could not parse requests logs: %v", err))
+		}
+		// Process the withdrawal requests contract execution
+		vmenv := vm.NewEVM(vmContext, vm.TxContext{}, statedb, chainConfig, vmConfig)
+		wxs := core.ProcessDequeueWithdrawalRequests(vmenv, statedb)
+		requests = append(requests, wxs...)
+		// Process the consolidation requests contract execution
+		cxs := core.ProcessDequeueConsolidationRequests(vmenv, statedb)
+		requests = append(requests, cxs...)
+		// Calculate the requests root
+		h := types.DeriveSha(requests, trie.NewStackTrie(nil))
+		requestsHash = &h
+
+		// Break out individual request types.
+		depositRequests = make(types.Deposits, 0)
+		withdrawalRequests = make(types.WithdrawalRequests, 0)
+		consolidationRequests = make(types.ConsolidationRequests, 0)
+		for _, req := range requests {
+			switch v := req.Inner().(type) {
+			case *types.Deposit:
+				depositRequests = append(depositRequests, v)
+			case *types.WithdrawalRequest:
+				withdrawalRequests = append(withdrawalRequests, v)
+			case *types.ConsolidationRequest:
+				consolidationRequests = append(consolidationRequests, v)
+			}
+		}
+	}
 	// Commit block
 	root, err := statedb.Commit(vmContext.BlockNumber.Uint64(), chainConfig.IsEIP158(vmContext.BlockNumber))
 	if err != nil {
 		return nil, nil, nil, NewError(ErrorEVM, fmt.Errorf("could not commit state: %v", err))
 	}
 	execRs := &ExecutionResult{
-		StateRoot:   root,
-		TxRoot:      types.DeriveSha(includedTxs, trie.NewStackTrie(nil)),
-		ReceiptRoot: types.DeriveSha(receipts, trie.NewStackTrie(nil)),
-		Bloom:       types.CreateBloom(receipts),
-		LogsHash:    rlpHash(statedb.Logs()),
-		Receipts:    receipts,
-		Rejected:    rejectedTxs,
-		Difficulty:  (*math.HexOrDecimal256)(vmContext.Difficulty),
-		GasUsed:     (math.HexOrDecimal64)(gasUsed),
-		BaseFee:     (*math.HexOrDecimal256)(vmContext.BaseFee),
+		StateRoot:             root,
+		TxRoot:                types.DeriveSha(includedTxs, trie.NewStackTrie(nil)),
+		ReceiptRoot:           types.DeriveSha(receipts, trie.NewStackTrie(nil)),
+		Bloom:                 types.CreateBloom(receipts),
+		LogsHash:              rlpHash(statedb.Logs()),
+		Receipts:              receipts,
+		Rejected:              rejectedTxs,
+		Difficulty:            (*math.HexOrDecimal256)(vmContext.Difficulty),
+		GasUsed:               (math.HexOrDecimal64)(gasUsed),
+		BaseFee:               (*math.HexOrDecimal256)(vmContext.BaseFee),
+		RequestsHash:          requestsHash,
+		DepositRequests:       depositRequests,
+		WithdrawalRequests:    withdrawalRequests,
+		ConsolidationRequests: consolidationRequests,
 	}
 	if pre.Env.Withdrawals != nil {
 		h := types.DeriveSha(types.Withdrawals(pre.Env.Withdrawals), trie.NewStackTrie(nil))
@@ -370,7 +430,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 	}
 	// Re-create statedb instance with new root upon the updated database
 	// for accessing latest states.
-	statedb, err = state.New(root, statedb.Database(), nil)
+	statedb, err = state.New(root, statedb.Database())
 	if err != nil {
 		return nil, nil, nil, NewError(ErrorEVM, fmt.Errorf("could not reopen state: %v", err))
 	}
@@ -379,8 +439,9 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 }
 
 func MakePreState(db ethdb.Database, accounts types.GenesisAlloc) *state.StateDB {
-	sdb := state.NewDatabaseWithConfig(db, &triedb.Config{Preimages: true})
-	statedb, _ := state.New(types.EmptyRootHash, sdb, nil)
+	tdb := triedb.NewDatabase(db, &triedb.Config{Preimages: true})
+	sdb := state.NewDatabase(tdb, nil)
+	statedb, _ := state.New(types.EmptyRootHash, sdb)
 	for addr, a := range accounts {
 		statedb.SetCode(addr, a.Code)
 		statedb.SetNonce(addr, a.Nonce)
@@ -391,7 +452,7 @@ func MakePreState(db ethdb.Database, accounts types.GenesisAlloc) *state.StateDB
 	}
 	// Commit and re-open to start with a clean state.
 	root, _ := statedb.Commit(0, false)
-	statedb, _ = state.New(root, sdb, nil)
+	statedb, _ = state.New(root, sdb)
 	return statedb
 }
 

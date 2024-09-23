@@ -91,7 +91,7 @@ func runStateTest(fname string, cfg vm.Config, dump bool) error {
 	}
 	var testsByName map[string]tests.StateTest
 	if err := json.Unmarshal(src, &testsByName); err != nil {
-		return err
+		return fmt.Errorf("unable to read test file: %w", err)
 	}
 
 	// Iterate over all the tests, run them and aggregate the results
@@ -107,7 +107,7 @@ func runStateTest(fname string, cfg vm.Config, dump bool) error {
 					result.Root = &root
 					fmt.Fprintf(os.Stderr, "{\"stateRoot\": \"%#x\"}\n", root)
 					if dump { // Dump any state to aid debugging
-						cpy, _ := state.New(root, tstate.StateDB.Database(), nil)
+						cpy, _ := state.New(root, tstate.StateDB.Database())
 						dump := cpy.RawDump(nil)
 						result.State = &dump
 					}
