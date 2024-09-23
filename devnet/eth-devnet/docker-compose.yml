@@ -1,5 +1,15 @@
 version: '3.8'
 services:
+  prysmctl-generate-genesis:
+    build:
+      context: .
+      dockerfile: prysmctl.Dockerfile
+    container_name: prysmctl-generate-genesis
+    volumes:
+      - ./node1/data:/app/node1/data
+      - ./node2/data:/app/node2/data
+    command: ["/app/scripts/generate-genesis.sh"]
+
   node1:
     build: .
     container_name: node1
@@ -42,6 +52,8 @@ services:
     networks:
       devnet:
         ipv4_address: 172.20.0.2
+    depends_on:
+      - prysmctl-generate-genesis
 
   node2:
     build: .
@@ -85,6 +97,8 @@ services:
     networks:
       devnet:
         ipv4_address: 172.20.0.3
+    depends_on:
+      - prysmctl-generate-genesis
 
 networks:
   devnet:
