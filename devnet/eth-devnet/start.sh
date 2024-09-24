@@ -54,7 +54,7 @@ fi
 ./geth --networkid "$NETWORK_ID" \
   --config "$CONFIG_TOML" \
   --http \
-  --http.api eth,net,web3,engine,admin \
+  --http.api eth,net,web3,engine,admin,personal \
   --http.addr 0.0.0.0 \
   --http.corsdomain "*" \
   --http.port "$HTTP_PORT" \
@@ -137,9 +137,9 @@ sleep 5
 #sleep 15
 
 # Start Bundler
-#echo "Starting Bundler..."
-#cd /app/bundler/
-#yarn bundler-rip7560 > /data/logs/bundler.log 2>&1
+echo "Starting Bundler..."
+cd /app/bundler/
+yarn bundler-rip7560 > /data/logs/bundler.log 2>&1 &
 
 # Keep the container running
 tail -f /dev/null
