@@ -134,7 +134,7 @@ sleep 5
   --graffiti "$NODE_IDENTITY" \
   --chain-config-file "$CONFIG_YML" > "$DATA_DIR/logs/validator.log" 2>&1 &
 
-#sleep 15
+sleep 15
 
 # Start Bundler
 echo "Starting Bundler..."

@@ -21,19 +21,6 @@ services:
       - ./node1/config.toml:/app/config.toml
     environment:
       NODE_IDENTITY: "node-1"
-      HTTP_PORT: 8545
-      WS_PORT: 8546
-      AUTHRPC_PORT: 8551
-      METRICS_PORT: 6060
-      P2P_PORT: 30303
-      BEACON_RPC_PORT: 4000
-      BEACON_GRPC_PORT: 3500
-      BEACON_P2P_TCP_PORT: 13000
-      BEACON_P2P_UDP_PORT: 12000
-      BEACON_MONITORING_PORT: 8080
-      VALIDATOR_RPC_PORT: 7000
-      VALIDATOR_GRPC_PORT: 7500
-      VALIDATOR_MONITORING_PORT: 8081
       VALIDATOR_START_INDEX: 0
       PEER_NODES: "/ip4/172.20.0.3/tcp/13001/p2p/16Uiu2HAmFz274W7rTgaeoifJwmtsRn9KVkvrvAmfNvg9gdhw89Gg /ip4/172.20.0.3/udp/12001/p2p/16Uiu2HAmFz274W7rTgaeoifJwmtsRn9KVkvrvAmfNvg9gdhw89Gg"
     ports:
@@ -67,35 +54,22 @@ services:
       - ./node2/config.toml:/app/config.toml
     environment:
       NODE_IDENTITY: "node-2"
-      HTTP_PORT: 8547
-      WS_PORT: 8548
-      AUTHRPC_PORT: 8553
-      METRICS_PORT: 6061
-      P2P_PORT: 30304
-      BEACON_RPC_PORT: 4001
-      BEACON_GRPC_PORT: 3501
-      BEACON_P2P_TCP_PORT: 13001
-      BEACON_P2P_UDP_PORT: 12001
-      BEACON_MONITORING_PORT: 8082
-      VALIDATOR_RPC_PORT: 7001
-      VALIDATOR_GRPC_PORT: 7501
-      VALIDATOR_MONITORING_PORT: 8083
       VALIDATOR_START_INDEX: 1
       PEER_NODES: "/ip4/172.20.0.2/tcp/13000/p2p/16Uiu2HAmNYTUE5jNA1MidN53yaojJU22JKRnfDTRvudkeb7pUXTx /ip4/172.20.0.2/udp/12000/p2p/16Uiu2HAmNYTUE5jNA1MidN53yaojJU22JKRnfDTRvudkeb7pUXTx"
     ports:
-      - "8547:8547"
-      - "8548:8548"
-      - "8553:8553"
-      - "6061:6061"
-      - "30304:30304"
-      - "13001:13001"
-      - "12001:12001/udp"
-      - "4001:4001"
-      - "3501:3501"
-      - "7001:7001"
-      - "7501:7501"
-      - "8082:8082"
-      - "8083:8083"
+      - "8547:8545"
+      - "8548:8546"
+      - "8553:8551"
+      - "6061:6060"
+      - "30304:30303"
+      - "13001:13000"
+      - "12001:12000/udp"
+      - "4001:4000"
+      - "3501:3500"
+      - "7001:7000"
+      - "7501:7500"
+      - "8082:8080"
+      - "8083:8081"
       - "3001:3000"
     networks:
       devnet:
