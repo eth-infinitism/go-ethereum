@@ -258,6 +258,9 @@ type BlockChain struct {
 	forker     *ForkChoice
 	vmConfig   vm.Config
 	logger     *tracing.Hooks
+
+	// note: added to assist debugging in case of a failed validation after bundler performed second validation
+	rip7560TransactionDebugInfos []*types.Rip7560TransactionDebugInfo
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -2534,4 +2537,27 @@ func (bc *BlockChain) SetTrieFlushInterval(interval time.Duration) {
 // GetTrieFlushInterval gets the in-memory tries flushAlloc interval
 func (bc *BlockChain) GetTrieFlushInterval() time.Duration {
 	return time.Duration(bc.flushInterval.Load())
+}
+
+// GetRip7560TransactionDebugInfo debug method for RIP-7560
+func (bc *BlockChain) GetRip7560TransactionDebugInfo(hash common.Hash) *types.Rip7560TransactionDebugInfo {
+	for i := 0; i < len(bc.rip7560TransactionDebugInfos); i++ {
+		info := bc.rip7560TransactionDebugInfos[i]
+		if info.TxHash.Cmp(hash) == 0 {
+			return info
+		}
+	}
+	return nil
+}
+
+// SetRip7560TransactionDebugInfo debug method for RIP-7560
+func (bc *BlockChain) SetRip7560TransactionDebugInfo(infos []*types.Rip7560TransactionDebugInfo) {
+	if infos == nil {
+		return
+	}
+	// TODO: use LRU cache or any other sane way to limit the
+	if len(bc.rip7560TransactionDebugInfos) > 30 {
+		bc.rip7560TransactionDebugInfos = make([]*types.Rip7560TransactionDebugInfo, 0)
+	}
+	bc.rip7560TransactionDebugInfos = append(bc.rip7560TransactionDebugInfos, infos...)
 }
