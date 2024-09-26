@@ -610,7 +610,7 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 
 func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, success bool, gasUsed uint64) *ExecutionResult {
 	var paymasterPostOpResult *ExecutionResult
-	paymasterPostOpMsg := preparePostOpMessage(vpr, success, gasUsed)
+	paymasterPostOpMsg := preparePostOpMessage(vpr, success)
 	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg, aatx.PostOpGas)
 	return paymasterPostOpResult
 }
@@ -860,8 +860,16 @@ func prepareAccountExecutionMessage(baseTx *types.Transaction) []byte {
 	return tx.ExecutionData
 }
 
-func preparePostOpMessage(vpr *ValidationPhaseResult, success bool, gasUsed uint64) []byte {
-	return abiEncodePostPaymasterTransaction(success, gasUsed, vpr.PaymasterContext)
+func preparePostOpMessage(vpr *ValidationPhaseResult, success bool) []byte {
+	usedGasBreakdown := &UsedGasBreakdown{
+		PreTransactionGasUsed:      big.NewInt(0),
+		AccountDeploymentGasUsed:   big.NewInt(0),
+		AccountValidationGasUsed:   big.NewInt(0),
+		PaymasterValidationGasUsed: big.NewInt(0),
+		ExecutionGasUsed:           big.NewInt(0),
+		ExecutionUnusedPenaltyGas:  big.NewInt(0),
+	}
+	return abiEncodePostPaymasterTransaction(success, usedGasBreakdown, vpr.PaymasterContext)
 }
 
 func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) (*AcceptAccountData, error) {

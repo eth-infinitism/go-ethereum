@@ -42,9 +42,18 @@ func abiEncodeValidatePaymasterTransaction(tx *types.Rip7560AccountAbstractionTx
 	return data, err
 }
 
-func abiEncodePostPaymasterTransaction(success bool, actualGasCost uint64, context []byte) []byte {
+type UsedGasBreakdown struct {
+	PreTransactionGasUsed      *big.Int
+	AccountDeploymentGasUsed   *big.Int
+	AccountValidationGasUsed   *big.Int
+	PaymasterValidationGasUsed *big.Int
+	ExecutionGasUsed           *big.Int
+	ExecutionUnusedPenaltyGas  *big.Int
+}
+
+func abiEncodePostPaymasterTransaction(success bool, usedGasBreakdown *UsedGasBreakdown, context []byte) []byte {
 	// TODO: pass actual gas cost parameter here!
-	postOpData, err := Rip7560Abi.Pack("postPaymasterTransaction", success, big.NewInt(int64(actualGasCost)), context)
+	postOpData, err := Rip7560Abi.Pack("postPaymasterTransaction", success, context, usedGasBreakdown)
 	if err != nil {
 		panic("unable to encode postPaymasterTransaction")
 	}
