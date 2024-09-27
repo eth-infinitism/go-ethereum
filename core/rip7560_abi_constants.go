@@ -36,9 +36,51 @@ const Rip7560AbiJson = `
 		"name":"postPaymasterTransaction",
 		"inputs": [
 			{"name": "success","type": "bool"},
-			{"name": "actualGasCost","type": "uint256"},
-			{"name": "context","type": "bytes"}
-		]
+			{
+				"internalType": "bytes",
+				"name": "context",
+				"type": "bytes"
+			},
+			{
+				"components": [
+					{
+						"internalType": "uint256",
+						"name": "preTransactionGasUsed",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "accountDeploymentGasUsed",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "accountValidationGasUsed",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "paymasterValidationGasUsed",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "executionGasUsed",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "executionUnusedPenaltyGas",
+						"type": "uint256"
+					}
+				],
+				"internalType": "struct UsedGasBreakdown",
+				"name": "usedGasBreakdown",
+				"type": "tuple"
+			}
+    	],
+    	"outputs": [],
+    	"stateMutability": "nonpayable"
 	},
 	{
 		"type":"function",
