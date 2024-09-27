@@ -48,6 +48,8 @@ type StateDB interface {
 	SubRefund(uint64)
 	GetRefund() uint64
 
+	ResetRefundRip7560()
+
 	GetCommittedState(common.Address, common.Hash) common.Hash
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)

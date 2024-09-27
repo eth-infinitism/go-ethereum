@@ -752,6 +752,12 @@ func (s *StateDB) GetRefund() uint64 {
 	return s.refund
 }
 
+// ResetRefundRip7560 sets the refund counter to 0 preparing for the next frame
+// TODO: Consider if this is a viable way to achieve a per-frame gas refund or if we must do something else
+func (s *StateDB) ResetRefundRip7560() {
+	s.refund = 0
+}
+
 // Finalise finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
