@@ -28,12 +28,15 @@ type contractSizeVal struct {
 }
 
 type access struct {
-	Reads  map[string]string `json:"reads"`
-	Writes map[string]uint64 `json:"writes"`
+	Reads           map[string]string `json:"reads"`
+	Writes          map[string]uint64 `json:"writes"`
+	TransientReads  map[string]string `json:"transientReads"`
+	TransientWrites map[string]uint64 `json:"transientWrites"`
 }
 
 type entryPointCall struct {
-	TopLevelMethodSig     hexutil.Bytes                       `json:"topLevelMethodSig"`
+	ofs                   uint64                              `json:"ofs"`
+	TopLevelMethodSig     *hexutil.Bytes                      `json:"topLevelMethodSig"`
 	TopLevelTargetAddress *common.Address                     `json:"topLevelTargetAddress"`
 	Access                map[common.Address]*access          `json:"access"`
 	Opcodes               map[string]uint64                   `json:"opcodes"`
@@ -49,8 +52,8 @@ type callsItem struct {
 	// Enter info
 	From   *common.Address `json:"from,omitempty"`
 	To     *common.Address `json:"to,omitempty"`
-	Method hexutil.Bytes   `json:"method,omitempty"`
-	Value  *hexutil.Big    `json:"value,omitempty"`
+	Method *hexutil.Bytes  `json:"method,omitempty"`
+	Value  *string         `json:"value,omitempty"`
 	Gas    *uint64         `json:"gas,omitempty"`
 
 	// Exit info
@@ -59,8 +62,8 @@ type callsItem struct {
 }
 
 type logsItem struct {
-	Data  hexutil.Bytes   `json:"data"`
-	Topic []hexutil.Bytes `json:"topic"`
+	Data   hexutil.Bytes   `json:"data"`
+	Topics []hexutil.Bytes `json:"topics"`
 }
 
 type lastThreeOpCodesItem struct {
@@ -162,6 +165,8 @@ func (b *bundlerCollector) OnTxStart(env *tracing.VMContext, tx *types.Transacti
 
 // GetResult returns an empty json object.
 func (b *bundlerCollector) GetResult() (json.RawMessage, error) {
+	//todo: cleanup last gasused, to match javascript
+	b.Calls[len(b.Calls)-1].GasUsed = new(uint64)
 	bcr := bundlerCollectorResults{
 		CallsFromEntryPoint: b.CallsFromEntryPoint,
 		Keccak:              b.Keccak,
@@ -177,23 +182,48 @@ func (b *bundlerCollector) GetResult() (json.RawMessage, error) {
 }
 
 func (b *bundlerCollector) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	if depth == 0 {
+		return
+	}
 	op := vm.OpCode(typ)
 	if b.stopCollecting {
 		return
 	}
 
-	var method []byte
+	var m []byte
 	if len(input) >= 4 {
-		method = append(method, input[:4]...)
+		m = append(m, input[:4]...)
 	}
+	method := (*hexutil.Bytes)(&m)
+
+	var valueStr *string
+	if value != nil {
+		v := value.String()
+		valueStr = &v
+	}
+
 	b.Calls = append(b.Calls, &callsItem{
 		Type:   op.String(),
 		From:   &from,
 		To:     &to,
 		Method: method,
 		Gas:    nullInt(gas),
-		Value:  (*hexutil.Big)(value),
+		Value:  valueStr,
 	})
+
+	if depth == 1 {
+
+		b.CurrentLevel = &entryPointCall{
+			TopLevelMethodSig:     method,
+			TopLevelTargetAddress: &to,
+			Access:                map[common.Address]*access{},
+			Opcodes:               map[string]uint64{},
+			ExtCodeAccessInfo:     map[common.Address]string{},
+			ContractSize:          map[common.Address]*contractSizeVal{},
+			OOG:                   nil,
+		}
+		b.CallsFromEntryPoint = append(b.CallsFromEntryPoint, b.CurrentLevel)
+	}
 }
 
 func nullBytes(b []byte) *[]byte {
@@ -212,7 +242,15 @@ func nullInt(gas uint64) *uint64 {
 // CaptureExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (b *bundlerCollector) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	//if depth == 0 {
+	//	return
+	//}
 
+	if depth == 1 && reverted {
+		//initialize to 4-bytes:
+		arr := make([]byte, 4)
+		b.CurrentLevel.TopLevelMethodSig = (*hexutil.Bytes)(&arr)
+	}
 	if b.stopCollecting {
 		return
 	}
@@ -284,22 +322,28 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 	}
 
 	if depth == 1 {
-		if opcode == "CALL" || opcode == "STATICCALL" {
-			addr := common.HexToAddress(StackBack(scope.StackData(), 1).Hex())
-			ofs := StackBack(scope.StackData(), 3).ToBig().Uint64()
-			sig := scope.MemoryData()[ofs : ofs+4]
-
-			b.CurrentLevel = &entryPointCall{
-				TopLevelMethodSig:     sig,
-				TopLevelTargetAddress: &addr,
-				Access:                map[common.Address]*access{},
-				Opcodes:               map[string]uint64{},
-				ExtCodeAccessInfo:     map[common.Address]string{},
-				ContractSize:          map[common.Address]*contractSizeVal{},
-				OOG:                   nil,
-			}
-			b.CallsFromEntryPoint = append(b.CallsFromEntryPoint, b.CurrentLevel)
-		} else if opcode == "LOG1" && StackBack(scope.StackData(), 2).Hex() == b.stopCollectingTopic {
+		//moved to OnEnter
+		//if opcode == "CALL" || opcode == "STATICCALL" {
+		//	addr := common.HexToAddress(StackBack(scope.StackData(), 1).Hex())
+		//
+		//	ofs := StackBack(scope.StackData(), 3).ToBig().Uint64()
+		//	sig := scope.MemoryData()[ofs : ofs+4]
+		//	fmt.Printf("==== CALL: %s %v\n", addr.Hex(), scope.MemoryData()[ofs:ofs+10])
+		//	sig = append(sig, byte(ofs>>8), byte(ofs&0xff))
+		//
+		//	b.CurrentLevel = &entryPointCall{
+		//		ofs:                   ofs,
+		//		TopLevelMethodSig:     sig,
+		//		TopLevelTargetAddress: &addr,
+		//		Access:                map[common.Address]*access{},
+		//		Opcodes:               map[string]uint64{},
+		//		ExtCodeAccessInfo:     map[common.Address]string{},
+		//		ContractSize:          map[common.Address]*contractSizeVal{},
+		//		OOG:                   nil,
+		//	}
+		//	b.CallsFromEntryPoint = append(b.CallsFromEntryPoint, b.CurrentLevel)
+		//} else
+		if opcode == "LOG1" && StackBack(scope.StackData(), 2).Hex() == b.stopCollectingTopic {
 			b.stopCollecting = true
 		}
 		b.lastOp = ""
@@ -358,8 +402,10 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 		addr := scope.Address()
 		if _, ok := b.CurrentLevel.Access[addr]; !ok {
 			b.CurrentLevel.Access[addr] = &access{
-				Reads:  map[string]string{},
-				Writes: map[string]uint64{},
+				Reads:           map[string]string{},
+				Writes:          map[string]uint64{},
+				TransientReads:  map[string]string{},
+				TransientWrites: map[string]uint64{},
 			}
 		}
 		access := *b.CurrentLevel.Access[addr]
@@ -396,8 +442,8 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 		}
 
 		b.Logs = append(b.Logs, &logsItem{
-			Data:  scope.MemoryData()[ofs : ofs+len],
-			Topic: topics,
+			Data:   scope.MemoryData()[ofs : ofs+len],
+			Topics: topics,
 		})
 	}
 }
