@@ -278,8 +278,13 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 	if b.stopCollecting {
 		return
 	}
-	opn := op
-	if opn >= 0x5f && opn <= 0x9f {
+
+	if gas < cost || (op == vm.SSTORE && gas < 2300) {
+		t := true
+		b.CurrentLevel.OOG = &t
+	}
+
+	if opb >= 0x5f && opb <= 0x9f {
 		return
 	}
 
@@ -296,11 +301,6 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 	})
 	if len(b.lastThreeOpCodes) > 3 {
 		b.lastThreeOpCodes = b.lastThreeOpCodes[1:]
-	}
-
-	if gas < cost || (opcode == "SSTORE" && gas < 2300) {
-		t := true
-		b.CurrentLevel.OOG = &t
 	}
 
 	if opcode == "REVERT" || opcode == "RETURN" {
