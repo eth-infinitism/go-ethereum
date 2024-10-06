@@ -2,11 +2,6 @@ package native
 
 import (
 	"encoding/json"
-	"math/big"
-	"regexp"
-	"strconv"
-	"strings"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -14,6 +9,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/holiman/uint256"
+	"math/big"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 func init() {
@@ -30,12 +29,11 @@ type contractSizeVal struct {
 type access struct {
 	Reads           map[string]string `json:"reads"`
 	Writes          map[string]uint64 `json:"writes"`
-	TransientReads  map[string]string `json:"transientReads"`
+	TransientReads  map[string]uint64 `json:"transientReads"`
 	TransientWrites map[string]uint64 `json:"transientWrites"`
 }
 
 type entryPointCall struct {
-	ofs                   uint64                              `json:"ofs"`
 	TopLevelMethodSig     *hexutil.Bytes                      `json:"topLevelMethodSig"`
 	TopLevelTargetAddress *common.Address                     `json:"topLevelTargetAddress"`
 	Access                map[common.Address]*access          `json:"access"`
@@ -192,7 +190,7 @@ func (b *bundlerCollector) OnEnter(depth int, typ byte, from common.Address, to 
 
 	var m []byte
 	if len(input) >= 4 {
-		m = append(m, input[:4]...)
+		m = copySlice(input[:4])
 	}
 	method := (*hexutil.Bytes)(&m)
 
@@ -255,20 +253,15 @@ func (b *bundlerCollector) OnExit(depth int, output []byte, gasUsed uint64, err 
 		return
 	}
 
-	rt := "RETURN"
+	typ := "RETURN"
 	if err != nil {
-		rt = "REVERT"
+		typ = "REVERT"
 	}
 	b.Calls = append(b.Calls, &callsItem{
-		Type:    rt,
+		Type:    typ,
 		GasUsed: nullInt(gasUsed),
 		Data:    output,
 	})
-}
-
-// StackBack returns the n-th item in stack
-func StackBack(stackData []uint256.Int, n int) *uint256.Int {
-	return &stackData[len(stackData)-n-1]
 }
 
 // CaptureState implements the EVMLogger interface to trace a single step of VM execution.
@@ -404,7 +397,7 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 			b.CurrentLevel.Access[addr] = &access{
 				Reads:           map[string]string{},
 				Writes:          map[string]uint64{},
-				TransientReads:  map[string]string{},
+				TransientReads:  map[string]uint64{},
 				TransientWrites: map[string]uint64{},
 			}
 		}
@@ -448,6 +441,17 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 	}
 }
 
+// StackBack returns the n-th item in stack
+func StackBack(stackData []uint256.Int, n int) *uint256.Int {
+	return &stackData[len(stackData)-n-1]
+}
+
 // Stop terminates execution of the tracer at the first opportune moment.
 func (b *bundlerCollector) Stop(err error) {
+}
+
+func copySlice(s []byte) []byte {
+	ret := make([]byte, len(s))
+	copy(ret, s)
+	return ret
 }
