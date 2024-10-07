@@ -107,7 +107,6 @@ func newBundlerCollector(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tr
 			// OnLog:     t.OnLog,
 		},
 		GetResult: t.GetResult,
-		Stop:      t.Stop,
 	}, nil
 }
 
@@ -133,28 +132,6 @@ func newBundlerCollectorObject(ctx *tracers.Context, cfg json.RawMessage) (*bund
 		stopCollectingTopic: stopCollectingTopic,
 		stopCollecting:      false,
 	}, nil
-}
-
-func (b *bundlerCollector) isEXTorCALL(opcode string) bool {
-	return strings.HasPrefix(opcode, "EXT") ||
-		opcode == "CALL" ||
-		opcode == "CALLCODE" ||
-		opcode == "DELEGATECALL" ||
-		opcode == "STATICCALL"
-}
-
-// not using 'isPrecompiled' to only allow the ones defined by the ERC-4337 as stateless precompiles
-// [OP-062]
-func (b *bundlerCollector) isAllowedPrecompile(addr common.Address) bool {
-	addrInt := addr.Big()
-	return addrInt.Cmp(big.NewInt(0)) == 1 && addrInt.Cmp(big.NewInt(10)) == -1
-}
-
-func (b *bundlerCollector) incrementCount(m map[string]uint64, k string) {
-	if _, ok := m[k]; !ok {
-		m[k] = 0
-	}
-	m[k]++
 }
 
 func (b *bundlerCollector) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
@@ -409,17 +386,21 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 			_, rOk := access.Reads[slotHex]
 			_, wOk := access.Writes[slotHex]
 			if !rOk && !wOk {
-				access.Reads[slotHex] = string(b.env.StateDB.GetState(addr, slot).Hex())
+				access.Reads[slotHex] = b.env.StateDB.GetState(addr, slot).Hex()
 			}
-		} else {
+		} else if opcode == "SSTORE" {
 			b.incrementCount(access.Writes, slotHex)
+		} else if opcode == "TLOAD" {
+			b.incrementCount(access.TransientReads, slotHex)
+		} else if opcode == "TSTORE" {
+			b.incrementCount(access.TransientWrites, slotHex)
 		}
 	}
 
 	if opcode == "KECCAK256" {
 		// collect keccak on 64-byte blocks
-		ofs := StackBack(scope.StackData(), 0).ToBig().Uint64()
-		len := StackBack(scope.StackData(), 1).ToBig().Uint64()
+		ofs := StackBack(scope.StackData(), 0).Uint64()
+		len := StackBack(scope.StackData(), 1).Uint64()
 		// currently, solidity uses only 2-word (6-byte) for a key. this might change..still, no need to
 		// return too much
 		if len > 20 && len < 512 {
@@ -427,15 +408,15 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 		}
 	} else if strings.HasPrefix(opcode, "LOG") {
 		count, _ := strconv.Atoi(opcode[3:])
-		ofs := StackBack(scope.StackData(), 0).ToBig().Uint64()
-		len := StackBack(scope.StackData(), 1).ToBig().Uint64()
+		ofs := StackBack(scope.StackData(), 0).Uint64()
+		len := StackBack(scope.StackData(), 1).Uint64()
 		topics := []hexutil.Bytes{}
 		for i := 0; i < count; i++ {
 			topics = append(topics, StackBack(scope.StackData(), 2+i).Bytes())
 		}
-
+		log := scope.MemoryData()[ofs : ofs+len]
 		b.Logs = append(b.Logs, &logsItem{
-			Data:   scope.MemoryData()[ofs : ofs+len],
+			Data:   log,
 			Topics: topics,
 		})
 	}
@@ -446,8 +427,26 @@ func StackBack(stackData []uint256.Int, n int) *uint256.Int {
 	return &stackData[len(stackData)-n-1]
 }
 
-// Stop terminates execution of the tracer at the first opportune moment.
-func (b *bundlerCollector) Stop(err error) {
+func (b *bundlerCollector) isEXTorCALL(opcode string) bool {
+	return strings.HasPrefix(opcode, "EXT") ||
+		opcode == "CALL" ||
+		opcode == "CALLCODE" ||
+		opcode == "DELEGATECALL" ||
+		opcode == "STATICCALL"
+}
+
+// not using 'isPrecompiled' to only allow the ones defined by the ERC-4337 as stateless precompiles
+// [OP-062]
+func (b *bundlerCollector) isAllowedPrecompile(addr common.Address) bool {
+	addrInt := addr.Big()
+	return addrInt.Cmp(big.NewInt(0)) == 1 && addrInt.Cmp(big.NewInt(10)) == -1
+}
+
+func (b *bundlerCollector) incrementCount(m map[string]uint64, k string) {
+	if _, ok := m[k]; !ok {
+		m[k] = 0
+	}
+	m[k]++
 }
 
 func copySlice(s []byte) []byte {
