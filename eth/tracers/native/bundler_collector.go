@@ -19,7 +19,7 @@ func init() {
 	tracers.DefaultDirectory.Register("bundlerCollectorTracer", newBundlerCollector, false)
 }
 
-type partialStack = []*uint256.Int
+type partialStack = []uint256.Int
 
 type contractSizeVal struct {
 	ContractSize int    `json:"contractSize"`
@@ -263,7 +263,7 @@ func (b *bundlerCollector) OnOpcode(pc uint64, opb byte, gas, cost uint64, scope
 	stackSize := len(scope.StackData())
 	stackTop3 := partialStack{}
 	for i := 0; i < 3 && i < stackSize; i++ {
-		stackTop3 = append(stackTop3, StackBack(scope.StackData(), i))
+		stackTop3 = append(stackTop3, *StackBack(scope.StackData(), i))
 	}
 	b.lastThreeOpCodes = append(b.lastThreeOpCodes, &lastThreeOpCodesItem{
 		Opcode:    opcode,
