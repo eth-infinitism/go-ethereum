@@ -259,6 +259,7 @@ func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560Account
 	if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
 		return 0, newValidationPhaseError(fmt.Errorf("RIP-7712 nonce is disabled"), nil, nil, false)
 	}
+	fmt.Printf("performNonceCheckFrameRip7712: %s", AA_NONCE_MANAGER.String())
 	nonceManagerMessageData := prepareNonceManagerMessage(tx)
 	resultNonceManager := CallFrame(st, &AA_ENTRY_POINT, &AA_NONCE_MANAGER, nonceManagerMessageData, st.gasRemaining)
 	if resultNonceManager.Failed() {
