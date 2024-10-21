@@ -1022,6 +1022,9 @@ func APIs(backend Backend) []rpc.API {
 		{
 			Namespace: "debug",
 			Service:   NewAPI(backend),
+		}, {
+			Namespace: "eth",
+			Service:   NewRip7560API(backend),
 		},
 	}
 }
