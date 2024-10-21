@@ -277,8 +277,6 @@ func init() {
 }
 
 func main() {
-	println("hello Shahaf!")
-	panic(777)
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
