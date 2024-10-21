@@ -118,7 +118,7 @@ func (tx *Rip7560AccountAbstractionTx) GasPayer() *common.Address {
 	return tx.Sender
 }
 
-func sumGas(vals ...uint64) (uint64, error) {
+func SumGas(vals ...uint64) (uint64, error) {
 	var sum uint64
 	for _, val := range vals {
 		if val > 1<<62 {
@@ -140,12 +140,42 @@ func callDataCost(data []byte) uint64 {
 	return nz*params.TxDataNonZeroGasEIP2028 + z*params.TxDataZeroGas
 }
 
-func (tx *Rip7560AccountAbstractionTx) CallDataGasCost() (uint64, error) {
-	return sumGas(callDataCost(tx.DeployerData), callDataCost(tx.ExecutionData), callDataCost(tx.PaymasterData))
+func (tx *Rip7560AccountAbstractionTx) PreTransactionGasCost() (uint64, error) {
+	calldataGasCost, err := tx.callDataGasCost()
+	if err != nil {
+		return 0, err
+	}
+	accessListGasCost := tx.accessListGasCost()
+	eip7702CodeInsertionsGasCost := tx.eip7702CodeInsertionsGasCost()
+	return params.Rip7560TxGas + calldataGasCost + accessListGasCost + eip7702CodeInsertionsGasCost, nil
+}
+
+func (tx *Rip7560AccountAbstractionTx) callDataGasCost() (uint64, error) {
+	return SumGas(
+		callDataCost(tx.AuthorizationData),
+		callDataCost(tx.DeployerData),
+		callDataCost(tx.ExecutionData),
+		callDataCost(tx.PaymasterData),
+	)
+}
+
+// note: copied from state_transition.go 'IntrinsicGas' function
+func (tx *Rip7560AccountAbstractionTx) accessListGasCost() uint64 {
+	if tx.AccessList == nil {
+		return 0
+	}
+	gas := uint64(len(tx.AccessList)) * params.TxAccessListAddressGas
+	gas += uint64(tx.AccessList.StorageKeys()) * params.TxAccessListStorageKeyGas
+	return gas
+}
+
+// note: this function must be implemented if EIP-7702 transactions are enabled
+func (tx *Rip7560AccountAbstractionTx) eip7702CodeInsertionsGasCost() uint64 {
+	return 0
 }
 
 func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
-	return sumGas(
+	return SumGas(
 		params.Rip7560TxGas,
 		tx.Gas, tx.ValidationGasLimit, tx.PaymasterValidationGasLimit, tx.PostOpGas,
 	)
@@ -154,6 +184,10 @@ func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
 // IsRip7712Nonce returns true if the transaction uses an RIP-7712 two-dimensional nonce
 func (tx *Rip7560AccountAbstractionTx) IsRip7712Nonce() bool {
 	return tx.NonceKey != nil && tx.NonceKey.Cmp(big.NewInt(0)) == 1
+}
+
+func (tx *Rip7560AccountAbstractionTx) EffectiveGasPrice(baseFee *big.Int) *big.Int {
+	return tx.effectiveGasPrice(new(big.Int), baseFee)
 }
 
 func (tx *Rip7560AccountAbstractionTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
