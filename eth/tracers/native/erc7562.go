@@ -38,7 +38,7 @@ func init() {
 
 type callFrameWithOpcodes struct {
 	callFrame
-	AccessedSlots     *accessedSlots         `json:"accessedSlots"`
+	AccessedSlots     accessedSlots          `json:"accessedSlots"`
 	ExtCodeAccessInfo []common.Address       `json:"extCodeAccessInfo"`
 	DeployedContracts []common.Address       `json:"deployedContracts"`
 	UsedOpcodes       map[string]bool        `json:"usedOpcodes"`
@@ -109,23 +109,21 @@ func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address
 	}
 
 	toCopy := to
-	_accessedSlots := &accessedSlots{
-		Reads:           map[string][]string{},
-		Writes:          map[string]uint64{},
-		TransientReads:  map[string]uint64{},
-		TransientWrites: map[string]uint64{},
-	}
-	_callFrame := callFrame{
-		Type:  vm.OpCode(typ),
-		From:  from,
-		To:    &toCopy,
-		Input: common.CopyBytes(input),
-		Gas:   gas,
-		Value: value}
 	call := callFrameWithOpcodes{
-		callFrame:     _callFrame,
-		AccessedSlots: _accessedSlots,
-		UsedOpcodes:   make(map[string]bool),
+		callFrame: callFrame{
+			Type:  vm.OpCode(typ),
+			From:  from,
+			To:    &toCopy,
+			Input: common.CopyBytes(input),
+			Gas:   gas,
+			Value: value},
+		AccessedSlots: accessedSlots{
+			Reads:           map[string][]string{},
+			Writes:          map[string]uint64{},
+			TransientReads:  map[string]uint64{},
+			TransientWrites: map[string]uint64{},
+		},
+		UsedOpcodes: make(map[string]bool),
 	}
 	if depth == 0 {
 		call.Gas = t.gasLimit
@@ -142,7 +140,7 @@ func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, s
 	stackSize := len(scope.StackData())
 	stackTop3 := partialStack{}
 	for i := 0; i < 3 && i < stackSize; i++ {
-		stackTop3 = append(stackTop3, stackBack(scope.StackData(), i))
+		stackTop3 = append(stackTop3, peepStack(scope.StackData(), i))
 	}
 	t.lastThreeOpCodes = append(t.lastThreeOpCodes, opcode)
 	if len(t.lastThreeOpCodes) > 3 {
@@ -150,36 +148,75 @@ func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, s
 	}
 
 	size := len(t.callstack)
-	call := t.callstack[size-1]
+	currentCallFrame := t.callstack[size-1]
 
-	if gas < cost || (opcode == "SSTORE" && gas < 2300) {
-		call.OutOfGas = true
+	t.detectOutOfGas(gas, cost, opcode, currentCallFrame)
+	t.handleExtOpcodes(opcode, currentCallFrame, stackTop3)
+	t.handleAccessedContractSize(opcode, scope, currentCallFrame)
+	t.handleGasObserved(opcode, currentCallFrame)
+	t.storeUsedOpcode(opcode, currentCallFrame)
+	t.handleStorageAccess(opcode, scope, currentCallFrame)
+	t.storeKeccak(opcode, scope)
+	t.lastOp = opcode
+}
+
+func (t *callTracerWithOpcodes) handleGasObserved(opcode string, currentCallFrame callFrameWithOpcodes) {
+	// [OP-012]
+	pendingGasObserved := t.lastOp == "GAS" && !strings.Contains(opcode, "CALL")
+	if pendingGasObserved {
+		currentCallFrame.GasObserved = true
 	}
+}
 
-	if opcode == "REVERT" || opcode == "RETURN" {
-		// exit() is not called on top-level return/revert, so we reconstruct it from opcode
-		if depth == 1 {
-			// TODO: uncomment and fix with StackBack
-			//ofs := scope.Stack.Back(0).ToBig().Int64()
-			//len := scope.Stack.Back(1).ToBig().Int64()
-			//data := scope.Memory.GetCopy(ofs, len)
-			//b.Calls = append(b.Calls, &callsItem{
-			//	Type:    opcode,
-			//	GasUsed: 0,
-			//	Data:    data,
-			//})
+func (t *callTracerWithOpcodes) storeUsedOpcode(opcode string, currentCallFrame callFrameWithOpcodes) {
+	// ignore "unimportant" opcodes
+	if opcode != "GAS" && !t.allowedOpcodeRegex.MatchString(opcode) {
+		currentCallFrame.UsedOpcodes[opcode] = true
+	}
+}
+
+func (t *callTracerWithOpcodes) handleStorageAccess(opcode string, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+	if opcode == "SLOAD" || opcode == "SSTORE" || opcode == "TLOAD" || opcode == "TSTORE" {
+		slot := common.BytesToHash(peepStack(scope.StackData(), 0).Bytes())
+		slotHex := slot.Hex()
+		addr := scope.Address()
+
+		if opcode == "SLOAD" {
+			// read slot values before this UserOp was created
+			// (so saving it if it was written before the first read)
+			_, rOk := currentCallFrame.AccessedSlots.Reads[slotHex]
+			_, wOk := currentCallFrame.AccessedSlots.Writes[slotHex]
+			if !rOk && !wOk {
+				currentCallFrame.AccessedSlots.Reads[slotHex] = append(currentCallFrame.AccessedSlots.Reads[slotHex], t.env.StateDB.GetState(addr, slot).Hex())
+			}
+		} else if opcode == "SSTORE" {
+			incrementCount(currentCallFrame.AccessedSlots.Writes, slotHex)
+		} else if opcode == "TLOAD" {
+			incrementCount(currentCallFrame.AccessedSlots.TransientReads, slotHex)
+		} else if opcode == "TSTORE" {
+			incrementCount(currentCallFrame.AccessedSlots.TransientWrites, slotHex)
 		}
-		// NOTE: flushing all history after RETURN
-		//b.lastThreeOpCodes = []*lastThreeOpCodesItem{}
 	}
+}
 
-	// not pasting the new "entryPointCall" detection here - not necessary for 7560
+func (t *callTracerWithOpcodes) storeKeccak(opcode string, scope tracing.OpContext) {
+	if opcode == "KECCAK256" {
+		dataOffset := peepStack(scope.StackData(), 0).Uint64()
+		dataLength := peepStack(scope.StackData(), 1).Uint64()
+		memory := scope.MemoryData()
+		keccak := make([]byte, dataLength)
+		copy(keccak, memory[dataOffset:dataOffset+dataLength])
+		t.Keccak = append(t.Keccak, keccak)
+	}
+}
 
-	//var lastOpInfo *lastThreeOpCodesItem
-	//if len(b.lastThreeOpCodes) >= 2 {
-	//	lastOpInfo = b.lastThreeOpCodes[len(b.lastThreeOpCodes)-2]
-	//}
-	// store all addresses touched by EXTCODE* opcodes
+func (t *callTracerWithOpcodes) detectOutOfGas(gas uint64, cost uint64, opcode string, currentCallFrame callFrameWithOpcodes) {
+	if gas < cost || (opcode == "SSTORE" && gas < 2300) {
+		currentCallFrame.OutOfGas = true
+	}
+}
+
+func (t *callTracerWithOpcodes) handleExtOpcodes(opcode string, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
 	if strings.HasPrefix(opcode, "EXT") {
 		addr := common.HexToAddress(stackTop3[0].Hex())
 		ops := []string{}
@@ -191,73 +228,26 @@ func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, s
 		// only store the last EXTCODE* opcode per address - could even be a boolean for our current use-case
 		// [OP-051]
 		if !strings.Contains(last3OpcodeStr, ",EXTCODESIZE,ISZERO") {
-			call.ExtCodeAccessInfo = append(call.ExtCodeAccessInfo, addr)
+			currentCallFrame.ExtCodeAccessInfo = append(currentCallFrame.ExtCodeAccessInfo, addr)
 		}
 	}
-
+}
+func (t *callTracerWithOpcodes) handleAccessedContractSize(opcode string, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
 	// [OP-041]
 	if isEXTorCALL(opcode) {
 		n := 0
 		if !strings.HasPrefix(opcode, "EXT") {
 			n = 1
 		}
-		addr := common.BytesToAddress(stackBack(scope.StackData(), n).Bytes())
+		addr := common.BytesToAddress(peepStack(scope.StackData(), n).Bytes())
 
-		if _, ok := call.ContractSize[addr]; !ok && !isAllowedPrecompile(addr) {
-			call.ContractSize[addr] = len(t.env.StateDB.GetCode(addr))
-		}
-	}
-
-	// [OP-012]
-	if t.lastOp == "GAS" && !strings.Contains(opcode, "CALL") {
-		call.UsedOpcodes["GAS"] = true
-	}
-	// ignore "unimportant" opcodes
-	if opcode != "GAS" && !t.allowedOpcodeRegex.MatchString(opcode) {
-		call.UsedOpcodes[opcode] = true
-	}
-	t.lastOp = opcode
-
-	if opcode == "SLOAD" || opcode == "SSTORE" || opcode == "TLOAD" || opcode == "TSTORE" {
-		slot := common.BytesToHash(stackBack(scope.StackData(), 0).Bytes())
-		slotHex := slot.Hex()
-		addr := scope.Address()
-
-		if opcode == "SLOAD" {
-			// read slot values before this UserOp was created
-			// (so saving it if it was written before the first read)
-			_, rOk := call.AccessedSlots.Reads[slotHex]
-			_, wOk := call.AccessedSlots.Writes[slotHex]
-			if !rOk && !wOk {
-				call.AccessedSlots.Reads[slotHex] = append(call.AccessedSlots.Reads[slotHex], t.env.StateDB.GetState(addr, slot).Hex())
-			}
-		} else if opcode == "SSTORE" {
-			incrementCount(call.AccessedSlots.Writes, slotHex)
-		} else if opcode == "TLOAD" {
-			incrementCount(call.AccessedSlots.TransientReads, slotHex)
-		} else if opcode == "TSTORE" {
-			incrementCount(call.AccessedSlots.TransientWrites, slotHex)
-		}
-	}
-
-	if opcode == "KECCAK256" {
-		// TODO: uncomment and fix with StackBack
-		// collect keccak on 64-byte blocks
-		ofs := stackBack(scope.StackData(), 0)
-		len := stackBack(scope.StackData(), 1)
-		memory := scope.MemoryData()
-		// currently, solidity uses only 2-word (6-byte) for a key. this might change..still, no need to
-		// return too much
-		if len.Uint64() > 20 && len.Uint64() < 512 {
-			keccak := make([]byte, len.Uint64())
-			copy(keccak, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
-			t.Keccak = append(t.Keccak, keccak)
+		if _, ok := currentCallFrame.ContractSize[addr]; !ok && !isAllowedPrecompile(addr) {
+			currentCallFrame.ContractSize[addr] = len(t.env.StateDB.GetCode(addr))
 		}
 	}
 }
 
-// StackBack returns the n-th item in stack
-func stackBack(stackData []uint256.Int, n int) *uint256.Int {
+func peepStack(stackData []uint256.Int, n int) *uint256.Int {
 	return &stackData[len(stackData)-n-1]
 }
 
