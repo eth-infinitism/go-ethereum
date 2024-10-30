@@ -99,9 +99,6 @@ func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
 	t.depth = depth
-	if t.config.OnlyTopCall && depth > 0 {
-		return
-	}
 	// Skip if tracing was interrupted
 	if t.interrupt.Load() {
 		return
