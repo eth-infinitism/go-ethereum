@@ -34,7 +34,7 @@ import (
 //go:generate go run github.com/fjl/gencodec -type callFrame -field-override callFrameMarshaling -out gen_callframe_json.go
 
 func init() {
-	tracers.DefaultDirectory.Register("callTracerWithOpcodes", newCallTracerWithOpcodes, false)
+	tracers.DefaultDirectory.Register("erc7562Tracer", newErc7562Tracer, false)
 }
 
 type callFrameWithOpcodes struct {
@@ -57,7 +57,7 @@ type accessedSlots struct {
 	TransientWrites map[string]uint64   `json:"transientWrites"`
 }
 
-type callTracerWithOpcodes struct {
+type erc7562Tracer struct {
 	callTracer
 	env *tracing.VMContext
 
@@ -71,8 +71,8 @@ type callTracerWithOpcodes struct {
 
 // newCallTracer returns a native go tracer which tracks
 // call frames of a tx, and implements vm.EVMLogger.
-func newCallTracerWithOpcodes(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig *params.ChainConfig*/) (*tracers.Tracer, error) {
-	t, err := newCallTracerObjectWithOpcodes(ctx, cfg)
+func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig *params.ChainConfig*/) (*tracers.Tracer, error) {
+	t, err := newErc7562TracerObject(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func newCallTracerWithOpcodes(ctx *tracers.Context, cfg json.RawMessage /*, chai
 	}, nil
 }
 
-func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (*callTracerWithOpcodes, error) {
+func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562Tracer, error) {
 	var config callTracerConfig
 	if cfg != nil {
 		if err := json.Unmarshal(cfg, &config); err != nil {
@@ -99,11 +99,11 @@ func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (
 	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
-	return &callTracerWithOpcodes{callstack: make([]callFrameWithOpcodes, 0, 1), callTracer: callTracer{config: config}}, nil
+	return &erc7562Tracer{callstack: make([]callFrameWithOpcodes, 0, 1), callTracer: callTracer{config: config}}, nil
 }
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
-func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
 	t.depth = depth
 	// Skip if tracing was interrupted
 	if t.interrupt.Load() {
@@ -133,7 +133,7 @@ func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address
 	t.callstack = append(t.callstack, call)
 }
 
-func (t *callTracerWithOpcodes) OnTxEnd(receipt *types.Receipt, err error) {
+func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
 	// Error happened during tx validation.
 	if err != nil {
 		return
@@ -147,7 +147,7 @@ func (t *callTracerWithOpcodes) OnTxEnd(receipt *types.Receipt, err error) {
 
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
-func (t *callTracerWithOpcodes) GetResult() (json.RawMessage, error) {
+func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 	if len(t.callstack) != 1 {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
@@ -159,7 +159,7 @@ func (t *callTracerWithOpcodes) GetResult() (json.RawMessage, error) {
 	return res, t.reason
 }
 
-func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
 	opcode := vm.OpCode(op)
 
 	stackSize := len(scope.StackData())
@@ -185,7 +185,7 @@ func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, s
 	t.lastOp = opcode
 }
 
-func (t *callTracerWithOpcodes) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// [OP-012]
 	pendingGasObserved := t.lastOp == vm.GAS && !strings.Contains(opcode.String(), "CALL")
 	if pendingGasObserved {
@@ -193,14 +193,14 @@ func (t *callTracerWithOpcodes) handleGasObserved(opcode vm.OpCode, currentCallF
 	}
 }
 
-func (t *callTracerWithOpcodes) storeUsedOpcode(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
 	if opcode != vm.GAS && !t.allowedOpcodeRegex.MatchString(opcode.String()) {
 		currentCallFrame.UsedOpcodes[opcode] = true
 	}
 }
 
-func (t *callTracerWithOpcodes) handleStorageAccess(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleStorageAccess(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
 	if opcode == vm.SLOAD || opcode == vm.SSTORE || opcode == vm.TLOAD || opcode == vm.TSTORE {
 		slot := common.BytesToHash(peepStack(scope.StackData(), 0).Bytes())
 		slotHex := slot.Hex()
@@ -224,7 +224,7 @@ func (t *callTracerWithOpcodes) handleStorageAccess(opcode vm.OpCode, scope trac
 	}
 }
 
-func (t *callTracerWithOpcodes) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
+func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 	if opcode == vm.KECCAK256 {
 		dataOffset := peepStack(scope.StackData(), 0).Uint64()
 		dataLength := peepStack(scope.StackData(), 1).Uint64()
@@ -235,14 +235,14 @@ func (t *callTracerWithOpcodes) storeKeccak(opcode vm.OpCode, scope tracing.OpCo
 	}
 }
 
-func (t *callTracerWithOpcodes) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
 		currentCallFrame.OutOfGas = true
 	}
 }
 
 // TODO: rewrite using byte opcode values, without relying on string manipulations
-func (t *callTracerWithOpcodes) handleExtOpcodes(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
+func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
 	if strings.HasPrefix(opcode.String(), "EXT") {
 		addr := common.HexToAddress(stackTop3[0].Hex())
 		ops := []string{}
@@ -258,7 +258,7 @@ func (t *callTracerWithOpcodes) handleExtOpcodes(opcode vm.OpCode, currentCallFr
 		}
 	}
 }
-func (t *callTracerWithOpcodes) handleAccessedContractSize(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
 	// [OP-041]
 	if isEXTorCALL(opcode) {
 		n := 0
