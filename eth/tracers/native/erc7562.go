@@ -79,6 +79,7 @@ func newCallTracerWithOpcodes(ctx *tracers.Context, cfg json.RawMessage /*, chai
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
 			OnTxStart: t.OnTxStart,
+			OnOpcode:  t.OnOpcode,
 			OnTxEnd:   t.OnTxEnd,
 			OnEnter:   t.OnEnter,
 			OnExit:    t.OnExit,
