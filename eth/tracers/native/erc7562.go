@@ -87,7 +87,7 @@ func newCallTracerWithOpcodes(ctx *tracers.Context, cfg json.RawMessage /*, chai
 	}, nil
 }
 
-func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (*callTracer, error) {
+func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (*callTracerWithOpcodes, error) {
 	var config callTracerConfig
 	if cfg != nil {
 		if err := json.Unmarshal(cfg, &config); err != nil {
@@ -96,7 +96,7 @@ func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (
 	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
-	return &callTracer{callstack: make([]callFrame, 0, 1), config: config}, nil
+	return &callTracerWithOpcodes{callstack: make([]callFrameWithOpcodes, 0, 1), callTracer: callTracer{config: config}}, nil
 }
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
