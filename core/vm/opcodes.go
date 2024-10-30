@@ -162,7 +162,7 @@ const (
 
 // 0x80 range - dups.
 const (
-	DUP1 = 0x80 + iota
+	DUP1 OpCode = 0x80 + iota
 	DUP2
 	DUP3
 	DUP4
@@ -182,7 +182,7 @@ const (
 
 // 0x90 range - swaps.
 const (
-	SWAP1 = 0x90 + iota
+	SWAP1 OpCode = 0x90 + iota
 	SWAP2
 	SWAP3
 	SWAP4
