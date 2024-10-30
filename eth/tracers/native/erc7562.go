@@ -40,7 +40,7 @@ type callFrameWithOpcodes struct {
 	AccessedSlots     accessedSlots          `json:"accessedSlots"`
 	ExtCodeAccessInfo []common.Address       `json:"extCodeAccessInfo"`
 	DeployedContracts []common.Address       `json:"deployedContracts"`
-	UsedOpcodes       map[string]bool        `json:"usedOpcodes"`
+	UsedOpcodes       map[vm.OpCode]bool     `json:"usedOpcodes"`
 	GasObserved       bool                   `json:"gasObserved"`
 	ContractSize      map[common.Address]int `json:"contractSize"`
 	OutOfGas          bool                   `json:"outOfGas"`
@@ -59,10 +59,11 @@ type callTracerWithOpcodes struct {
 	callTracer
 	env *tracing.VMContext
 
+	// TODO: remove regex based code
 	allowedOpcodeRegex *regexp.Regexp
-	lastOp             string
+	lastOp             vm.OpCode
 	callstack          []callFrameWithOpcodes
-	lastThreeOpCodes   []string
+	lastThreeOpCodes   []vm.OpCode
 	Keccak             []hexutil.Bytes `json:"keccak"`
 }
 
@@ -119,7 +120,7 @@ func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address
 			TransientReads:  map[string]uint64{},
 			TransientWrites: map[string]uint64{},
 		},
-		UsedOpcodes: make(map[string]bool),
+		UsedOpcodes: make(map[vm.OpCode]bool),
 	}
 	if depth == 0 {
 		call.Gas = t.gasLimit
@@ -128,7 +129,7 @@ func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address
 }
 
 func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
-	opcode := vm.OpCode(op).String()
+	opcode := vm.OpCode(op)
 
 	stackSize := len(scope.StackData())
 	stackTop3 := partialStack{}
@@ -153,28 +154,28 @@ func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, s
 	t.lastOp = opcode
 }
 
-func (t *callTracerWithOpcodes) handleGasObserved(opcode string, currentCallFrame callFrameWithOpcodes) {
+func (t *callTracerWithOpcodes) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// [OP-012]
-	pendingGasObserved := t.lastOp == "GAS" && !strings.Contains(opcode, "CALL")
+	pendingGasObserved := t.lastOp == vm.GAS && !strings.Contains(opcode.String(), "CALL")
 	if pendingGasObserved {
 		currentCallFrame.GasObserved = true
 	}
 }
 
-func (t *callTracerWithOpcodes) storeUsedOpcode(opcode string, currentCallFrame callFrameWithOpcodes) {
+func (t *callTracerWithOpcodes) storeUsedOpcode(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
-	if opcode != "GAS" && !t.allowedOpcodeRegex.MatchString(opcode) {
+	if opcode != vm.GAS && !t.allowedOpcodeRegex.MatchString(opcode.String()) {
 		currentCallFrame.UsedOpcodes[opcode] = true
 	}
 }
 
-func (t *callTracerWithOpcodes) handleStorageAccess(opcode string, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
-	if opcode == "SLOAD" || opcode == "SSTORE" || opcode == "TLOAD" || opcode == "TSTORE" {
+func (t *callTracerWithOpcodes) handleStorageAccess(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+	if opcode == vm.SLOAD || opcode == vm.SSTORE || opcode == vm.TLOAD || opcode == vm.TSTORE {
 		slot := common.BytesToHash(peepStack(scope.StackData(), 0).Bytes())
 		slotHex := slot.Hex()
 		addr := scope.Address()
 
-		if opcode == "SLOAD" {
+		if opcode == vm.SLOAD {
 			// read slot values before this UserOp was created
 			// (so saving it if it was written before the first read)
 			_, rOk := currentCallFrame.AccessedSlots.Reads[slotHex]
@@ -182,18 +183,18 @@ func (t *callTracerWithOpcodes) handleStorageAccess(opcode string, scope tracing
 			if !rOk && !wOk {
 				currentCallFrame.AccessedSlots.Reads[slotHex] = append(currentCallFrame.AccessedSlots.Reads[slotHex], t.env.StateDB.GetState(addr, slot).Hex())
 			}
-		} else if opcode == "SSTORE" {
+		} else if opcode == vm.SSTORE {
 			incrementCount(currentCallFrame.AccessedSlots.Writes, slotHex)
-		} else if opcode == "TLOAD" {
+		} else if opcode == vm.TLOAD {
 			incrementCount(currentCallFrame.AccessedSlots.TransientReads, slotHex)
-		} else if opcode == "TSTORE" {
+		} else if opcode == vm.TSTORE {
 			incrementCount(currentCallFrame.AccessedSlots.TransientWrites, slotHex)
 		}
 	}
 }
 
-func (t *callTracerWithOpcodes) storeKeccak(opcode string, scope tracing.OpContext) {
-	if opcode == "KECCAK256" {
+func (t *callTracerWithOpcodes) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
+	if opcode == vm.KECCAK256 {
 		dataOffset := peepStack(scope.StackData(), 0).Uint64()
 		dataLength := peepStack(scope.StackData(), 1).Uint64()
 		memory := scope.MemoryData()
@@ -203,18 +204,19 @@ func (t *callTracerWithOpcodes) storeKeccak(opcode string, scope tracing.OpConte
 	}
 }
 
-func (t *callTracerWithOpcodes) detectOutOfGas(gas uint64, cost uint64, opcode string, currentCallFrame callFrameWithOpcodes) {
-	if gas < cost || (opcode == "SSTORE" && gas < 2300) {
+func (t *callTracerWithOpcodes) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
 		currentCallFrame.OutOfGas = true
 	}
 }
 
-func (t *callTracerWithOpcodes) handleExtOpcodes(opcode string, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
-	if strings.HasPrefix(opcode, "EXT") {
+// TODO: rewrite using byte opcode values, without relying on string manipulations
+func (t *callTracerWithOpcodes) handleExtOpcodes(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
+	if strings.HasPrefix(opcode.String(), "EXT") {
 		addr := common.HexToAddress(stackTop3[0].Hex())
 		ops := []string{}
 		for _, item := range t.lastThreeOpCodes {
-			ops = append(ops, item)
+			ops = append(ops, item.String())
 		}
 		last3OpcodeStr := strings.Join(ops, ",")
 
@@ -225,11 +227,11 @@ func (t *callTracerWithOpcodes) handleExtOpcodes(opcode string, currentCallFrame
 		}
 	}
 }
-func (t *callTracerWithOpcodes) handleAccessedContractSize(opcode string, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+func (t *callTracerWithOpcodes) handleAccessedContractSize(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
 	// [OP-041]
 	if isEXTorCALL(opcode) {
 		n := 0
-		if !strings.HasPrefix(opcode, "EXT") {
+		if !strings.HasPrefix(opcode.String(), "EXT") {
 			n = 1
 		}
 		addr := common.BytesToAddress(peepStack(scope.StackData(), n).Bytes())
@@ -244,12 +246,12 @@ func peepStack(stackData []uint256.Int, n int) *uint256.Int {
 	return &stackData[len(stackData)-n-1]
 }
 
-func isEXTorCALL(opcode string) bool {
-	return strings.HasPrefix(opcode, "EXT") ||
-		opcode == "CALL" ||
-		opcode == "CALLCODE" ||
-		opcode == "DELEGATECALL" ||
-		opcode == "STATICCALL"
+func isEXTorCALL(opcode vm.OpCode) bool {
+	return strings.HasPrefix(opcode.String(), "EXT") ||
+		opcode == vm.CALL ||
+		opcode == vm.CALLCODE ||
+		opcode == vm.DELEGATECALL ||
+		opcode == vm.STATICCALL
 }
 
 // not using 'isPrecompiled' to only allow the ones defined by the ERC-7562 as stateless precompiles
