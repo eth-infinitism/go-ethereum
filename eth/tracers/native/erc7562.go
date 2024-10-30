@@ -18,9 +18,11 @@ package native
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/holiman/uint256"
@@ -128,6 +130,32 @@ func (t *callTracerWithOpcodes) OnEnter(depth int, typ byte, from common.Address
 		call.Gas = t.gasLimit
 	}
 	t.callstack = append(t.callstack, call)
+}
+
+func (t *callTracerWithOpcodes) OnTxEnd(receipt *types.Receipt, err error) {
+	// Error happened during tx validation.
+	if err != nil {
+		return
+	}
+	t.callstack[0].GasUsed = receipt.GasUsed
+	if t.config.WithLog {
+		// Logs are not emitted when the call fails
+		clearFailedLogs(&t.callstack[0].callFrame, false)
+	}
+}
+
+// GetResult returns the json-encoded nested list of call traces, and any
+// error arising from the encoding or forceful termination (via `Stop`).
+func (t *callTracerWithOpcodes) GetResult() (json.RawMessage, error) {
+	if len(t.callstack) != 1 {
+		return nil, errors.New("incorrect number of top-level calls")
+	}
+
+	res, err := json.Marshal(t.callstack[0])
+	if err != nil {
+		return nil, err
+	}
+	return res, t.reason
 }
 
 func (t *callTracerWithOpcodes) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
