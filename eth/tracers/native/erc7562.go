@@ -89,8 +89,10 @@ func newCallTracerWithOpcodes(ctx *tracers.Context, cfg json.RawMessage /*, chai
 
 func newCallTracerObjectWithOpcodes(ctx *tracers.Context, cfg json.RawMessage) (*callTracer, error) {
 	var config callTracerConfig
-	if err := json.Unmarshal(cfg, &config); err != nil {
-		return nil, err
+	if cfg != nil {
+		if err := json.Unmarshal(cfg, &config); err != nil {
+			return nil, err
+		}
 	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
