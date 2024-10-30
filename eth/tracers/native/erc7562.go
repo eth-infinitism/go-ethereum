@@ -25,9 +25,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 	"math/big"
-	"regexp"
 	"strings"
 )
 
@@ -61,12 +61,10 @@ type erc7562Tracer struct {
 	callTracer
 	env *tracing.VMContext
 
-	// TODO: remove regex based code
-	allowedOpcodeRegex *regexp.Regexp
-	lastOp             vm.OpCode
-	callstack          []callFrameWithOpcodes
-	lastThreeOpCodes   []vm.OpCode
-	Keccak             []hexutil.Bytes `json:"keccak"`
+	lastOp               vm.OpCode
+	callstackWithOpcodes []callFrameWithOpcodes
+	lastThreeOpCodes     []vm.OpCode
+	Keccak               []hexutil.Bytes `json:"keccak"`
 }
 
 // newCallTracer returns a native go tracer which tracks
@@ -99,7 +97,12 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
-	return &erc7562Tracer{callstack: make([]callFrameWithOpcodes, 0, 1), callTracer: callTracer{config: config}}, nil
+	return &erc7562Tracer{callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1), callTracer: callTracer{config: config}}, nil
+}
+
+func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
+	t.env = env
+	t.gasLimit = tx.Gas()
 }
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
@@ -125,12 +128,48 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 			TransientReads:  map[string]uint64{},
 			TransientWrites: map[string]uint64{},
 		},
-		UsedOpcodes: make(map[vm.OpCode]bool),
+		UsedOpcodes:  make(map[vm.OpCode]bool, 3),
+		ContractSize: make(map[common.Address]int, 1),
 	}
 	if depth == 0 {
 		call.Gas = t.gasLimit
 	}
-	t.callstack = append(t.callstack, call)
+	t.callstackWithOpcodes = append(t.callstackWithOpcodes, call)
+}
+
+func (t *erc7562Tracer) captureEnd(output []byte, gasUsed uint64, err error, reverted bool) {
+	if len(t.callstackWithOpcodes) != 1 {
+		return
+	}
+	t.callstackWithOpcodes[0].processOutput(output, err, reverted)
+}
+
+// OnExit is called when EVM exits a scope, even if the scope didn't
+// execute any code.
+func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	if depth == 0 {
+		t.captureEnd(output, gasUsed, err, reverted)
+		return
+	}
+
+	t.depth = depth - 1
+	if t.config.OnlyTopCall {
+		return
+	}
+
+	size := len(t.callstackWithOpcodes)
+	if size <= 1 {
+		return
+	}
+	// Pop call.
+	call := t.callstackWithOpcodes[size-1]
+	t.callstackWithOpcodes = t.callstackWithOpcodes[:size-1]
+	size -= 1
+
+	call.GasUsed = gasUsed
+	call.processOutput(output, err, reverted)
+	// Nest call into parent.
+	t.callstackWithOpcodes[size-1].Calls = append(t.callstackWithOpcodes[size-1].Calls, call)
 }
 
 func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
@@ -138,21 +177,44 @@ func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
 	if err != nil {
 		return
 	}
-	t.callstack[0].GasUsed = receipt.GasUsed
+	log.Error("WTF is receipt", receipt)
+	t.callstackWithOpcodes[0].GasUsed = receipt.GasUsed
 	if t.config.WithLog {
 		// Logs are not emitted when the call fails
-		clearFailedLogs(&t.callstack[0].callFrame, false)
+		clearFailedLogs(&t.callstackWithOpcodes[0].callFrame, false)
 	}
+}
+
+func (t *erc7562Tracer) OnLog(log *types.Log) {
+	// Only logs need to be captured via opcode processing
+	if !t.config.WithLog {
+		return
+	}
+	// Avoid processing nested calls when only caring about top call
+	if t.config.OnlyTopCall && t.depth > 0 {
+		return
+	}
+	// Skip if tracing was interrupted
+	if t.interrupt.Load() {
+		return
+	}
+	l := callLog{
+		Address:  log.Address,
+		Topics:   log.Topics,
+		Data:     log.Data,
+		Position: hexutil.Uint(len(t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Calls)),
+	}
+	t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Logs = append(t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Logs, l)
 }
 
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
-	if len(t.callstack) != 1 {
+	if len(t.callstackWithOpcodes) != 1 {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
 
-	res, err := json.Marshal(t.callstack[0])
+	res, err := json.Marshal(t.callstackWithOpcodes[0])
 	if err != nil {
 		return nil, err
 	}
@@ -171,18 +233,27 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	if len(t.lastThreeOpCodes) > 3 {
 		t.lastThreeOpCodes = t.lastThreeOpCodes[1:]
 	}
+	//log.Error("WTF 2", pc, opcode.String())
 
-	size := len(t.callstack)
-	currentCallFrame := t.callstack[size-1]
-
+	size := len(t.callstackWithOpcodes)
+	currentCallFrame := t.callstackWithOpcodes[size-1]
+	//log.Error("WTF 3")
 	t.detectOutOfGas(gas, cost, opcode, currentCallFrame)
+	//log.Error("WTF 4")
 	t.handleExtOpcodes(opcode, currentCallFrame, stackTop3)
+	//log.Error("WTF 5")
 	t.handleAccessedContractSize(opcode, scope, currentCallFrame)
+	//log.Error("WTF 6")
 	t.handleGasObserved(opcode, currentCallFrame)
+	//log.Error("WTF 7")
 	t.storeUsedOpcode(opcode, currentCallFrame)
+	//log.Error("WTF 8")
 	t.handleStorageAccess(opcode, scope, currentCallFrame)
+	//log.Error("WTF 9")
 	t.storeKeccak(opcode, scope)
+	//log.Error("WTF 10")
 	t.lastOp = opcode
+	//log.Error("WTF END??", pc)
 }
 
 func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
@@ -195,7 +266,7 @@ func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame cal
 
 func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
-	if opcode != vm.GAS && !t.allowedOpcodeRegex.MatchString(opcode.String()) {
+	if opcode != vm.GAS && !isAllowedOpcodeAfterGAS(opcode) {
 		currentCallFrame.UsedOpcodes[opcode] = true
 	}
 }
@@ -235,6 +306,26 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 	}
 }
 
+//func (t *erc7562Tracer) handleLogs(opcode vm.OpCode, scope tracing.OpContext) {
+//	if opcode == vm.LOG0 || opcode == vm.LOG1 || opcode == vm.LOG2 || opcode == vm.LOG3 || opcode == vm.LOG4 {
+//		count := int(opcode - vm.LOG0)
+//		ofs := peepStack(scope.StackData(), 0)
+//		len := peepStack(scope.StackData(), 1)
+//		memory := scope.MemoryData()
+//		topics := []hexutil.Bytes{}
+//		for i := 0; i < count; i++ {
+//			topics = append(topics, peepStack(scope.StackData(), 2+i).Bytes())
+//			//topics = append(topics, scope.Stack.Back(2+i).Bytes())
+//		}
+//		log := make([]byte, len.Uint64())
+//		copy(log, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
+//		t.Logs = append(t.Logs, &logsItem{
+//			Data:  log,
+//			Topic: topics,
+//		})
+//	}
+//}
+
 func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
 		currentCallFrame.OutOfGas = true
@@ -266,7 +357,6 @@ func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope traci
 			n = 1
 		}
 		addr := common.BytesToAddress(peepStack(scope.StackData(), n).Bytes())
-
 		if _, ok := currentCallFrame.ContractSize[addr]; !ok && !isAllowedPrecompile(addr) {
 			currentCallFrame.ContractSize[addr] = len(t.env.StateDB.GetCode(addr))
 		}
@@ -283,6 +373,19 @@ func isEXTorCALL(opcode vm.OpCode) bool {
 		opcode == vm.CALLCODE ||
 		opcode == vm.DELEGATECALL ||
 		opcode == vm.STATICCALL
+}
+
+func isAllowedOpcodeAfterGAS(opcode vm.OpCode) bool {
+	if (opcode >= vm.DUP1 && opcode <= vm.DUP16) || (opcode >= vm.SWAP1 && opcode <= vm.SWAP16) || (opcode >= vm.PUSH0 && opcode <= vm.PUSH32) {
+		return true
+	}
+	switch opcode {
+	case
+		vm.POP, vm.ADD, vm.SUB, vm.MUL, vm.DIV, vm.EQ, vm.LT, vm.GT, vm.SLT, vm.SGT,
+		vm.SHL, vm.SHR, vm.AND, vm.OR, vm.NOT, vm.ISZERO:
+		return true
+	}
+	return false
 }
 
 // not using 'isPrecompiled' to only allow the ones defined by the ERC-7562 as stateless precompiles
