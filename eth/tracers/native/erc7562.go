@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
+	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
 	"strings"
 )
@@ -61,6 +62,7 @@ type erc7562Tracer struct {
 	callTracer
 	env *tracing.VMContext
 
+	ignoredOpcodes       []vm.OpCode
 	lastOp               vm.OpCode
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastThreeOpCodes     []vm.OpCode
@@ -88,16 +90,46 @@ func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig 
 	}, nil
 }
 
+type erc7562TracerConfig struct {
+	IgnoredOpcodes *string `json:"ignoredOpcodes"` // If true, call tracer won't collect any subcalls
+	WithLog        bool    `json:"withLog"`        // If true, call tracer will collect event logs
+}
+
+// Function to convert byte array to []vm.OpCode
+func ConvertBytesToOpCodes(byteArray []byte) []vm.OpCode {
+	opCodes := make([]vm.OpCode, len(byteArray))
+	for i, b := range byteArray {
+		opCodes[i] = vm.OpCode(b)
+	}
+	return opCodes
+}
+
 func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562Tracer, error) {
-	var config callTracerConfig
+	var config erc7562TracerConfig
 	if cfg != nil {
 		if err := json.Unmarshal(cfg, &config); err != nil {
 			return nil, err
 		}
 	}
+	var ignoredOpcodes []vm.OpCode
+	if config.IgnoredOpcodes == nil {
+		ignoredOpcodes = defaultIgnoredOpcodes()
+	} else {
+		ignoredOpcodes = ConvertBytesToOpCodes(hexutils.HexToBytes(*config.IgnoredOpcodes))
+	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
-	return &erc7562Tracer{callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1), callTracer: callTracer{config: config}}, nil
+	return &erc7562Tracer{
+		callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1),
+		ignoredOpcodes:       ignoredOpcodes,
+		callTracer: callTracer{
+			config: callTracerConfig{
+				WithLog: config.WithLog,
+				// Disabling the 'OnlyTopCall' option as it defeats the purpose of ERC-7562
+				OnlyTopCall: false,
+			},
+		},
+	}, nil
 }
 
 func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
@@ -266,7 +298,7 @@ func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame cal
 
 func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
-	if opcode != vm.GAS && !isAllowedOpcodeAfterGAS(opcode) {
+	if opcode != vm.GAS && !t.isIgnoredOpcode(opcode) {
 		currentCallFrame.UsedOpcodes[opcode] = true
 	}
 }
@@ -375,17 +407,34 @@ func isEXTorCALL(opcode vm.OpCode) bool {
 		opcode == vm.STATICCALL
 }
 
-func isAllowedOpcodeAfterGAS(opcode vm.OpCode) bool {
-	if (opcode >= vm.DUP1 && opcode <= vm.DUP16) || (opcode >= vm.SWAP1 && opcode <= vm.SWAP16) || (opcode >= vm.PUSH0 && opcode <= vm.PUSH32) {
-		return true
-	}
-	switch opcode {
-	case
-		vm.POP, vm.ADD, vm.SUB, vm.MUL, vm.DIV, vm.EQ, vm.LT, vm.GT, vm.SLT, vm.SGT,
-		vm.SHL, vm.SHR, vm.AND, vm.OR, vm.NOT, vm.ISZERO:
-		return true
+// Check if this opcode is ignored for the purposes of generating the used opcodes report
+func (t *erc7562Tracer) isIgnoredOpcode(opcode vm.OpCode) bool {
+	for _, ignoredOpcode := range t.ignoredOpcodes {
+		if opcode == ignoredOpcode {
+			return true
+		}
 	}
 	return false
+}
+
+func defaultIgnoredOpcodes() []vm.OpCode {
+	i := 0
+	ignoredOpcodes := make([]vm.OpCode, 100) // TODO count real length
+	// Allow all PUSHx, DUPx and SWAPx opcodes as they have sequential codes
+	for op := vm.PUSH0; op < vm.SWAP16; op++ {
+		ignoredOpcodes[i] = op
+		i++
+	}
+	for _, op := range []vm.OpCode{
+		vm.POP, vm.ADD, vm.SUB, vm.MUL,
+		vm.DIV, vm.EQ, vm.LT, vm.GT,
+		vm.SLT, vm.SGT, vm.SHL, vm.SHR,
+		vm.AND, vm.OR, vm.NOT, vm.ISZERO,
+	} {
+		ignoredOpcodes[i] = op
+		i++
+	}
+	return ignoredOpcodes
 }
 
 // not using 'isPrecompiled' to only allow the ones defined by the ERC-7562 as stateless precompiles
