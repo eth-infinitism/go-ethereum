@@ -29,7 +29,6 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
-	"strings"
 )
 
 //go:generate go run github.com/fjl/gencodec -type callFrame -field-override callFrameMarshaling -out gen_callframe_json.go
@@ -290,7 +289,8 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 
 func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	// [OP-012]
-	pendingGasObserved := t.lastOp == vm.GAS && !strings.Contains(opcode.String(), "CALL")
+	isCall := opcode == vm.CALL || opcode == vm.STATICCALL || opcode == vm.DELEGATECALL || opcode == vm.CALLCODE
+	pendingGasObserved := t.lastOp == vm.GAS && !isCall
 	if pendingGasObserved {
 		currentCallFrame.GasObserved = true
 	}
@@ -366,26 +366,24 @@ func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode
 
 // TODO: rewrite using byte opcode values, without relying on string manipulations
 func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
-	if strings.HasPrefix(opcode.String(), "EXT") {
+	if isEXT(opcode) {
 		addr := common.HexToAddress(stackTop3[0].Hex())
-		ops := []string{}
-		for _, item := range t.lastThreeOpCodes {
-			ops = append(ops, item.String())
-		}
-		last3OpcodeStr := strings.Join(ops, ",")
 
+		// TODO: THIS CODE SEEMS TO BE EQUIVALENT TO THE STRING BASED BUT IT IS LOGICALLY WRONG AND WILL NEVER WORK.
+		// TODO: INSTEAD WE MAY NEED TO DEFER ADDING ADDRESS TO 'ExtCodeAccessInfo' UNTIL AFTER THE 'ISZERO' CHECK.
 		// only store the last EXTCODE* opcode per address - could even be a boolean for our current use-case
 		// [OP-051]
-		if !strings.Contains(last3OpcodeStr, ",EXTCODESIZE,ISZERO") {
+		if !(t.lastThreeOpCodes[1] == vm.EXTCODESIZE && t.lastThreeOpCodes[2] == vm.ISZERO) {
 			currentCallFrame.ExtCodeAccessInfo = append(currentCallFrame.ExtCodeAccessInfo, addr)
 		}
 	}
 }
+
 func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
 	// [OP-041]
 	if isEXTorCALL(opcode) {
 		n := 0
-		if !strings.HasPrefix(opcode.String(), "EXT") {
+		if !isEXT(opcode) {
 			n = 1
 		}
 		addr := common.BytesToAddress(peepStack(scope.StackData(), n).Bytes())
@@ -400,11 +398,17 @@ func peepStack(stackData []uint256.Int, n int) *uint256.Int {
 }
 
 func isEXTorCALL(opcode vm.OpCode) bool {
-	return strings.HasPrefix(opcode.String(), "EXT") ||
+	return isEXT(opcode) ||
 		opcode == vm.CALL ||
 		opcode == vm.CALLCODE ||
 		opcode == vm.DELEGATECALL ||
 		opcode == vm.STATICCALL
+}
+
+func isEXT(opcode vm.OpCode) bool {
+	return opcode == vm.EXTCODEHASH ||
+		opcode == vm.EXTCODESIZE ||
+		opcode == vm.EXTCODECOPY
 }
 
 // Check if this opcode is ignored for the purposes of generating the used opcodes report
