@@ -124,7 +124,10 @@ func (a *Authorization) WithSignature(sig []byte) *Authorization {
 
 type AuthorizationList []*Authorization
 
+// TODO make this a struct and possible to flatten?
+
 // Authority recovers the authorizing
+// TODO: refactor this logic to be cacheable like tx senders.
 func (a Authorization) Authority() (common.Address, error) {
 	sighash := prefixedRlpHash(
 		0x05,

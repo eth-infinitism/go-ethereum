@@ -217,12 +217,13 @@ type LegacyPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *journal    // Journal of local transaction to back up to disk
 
-	reserve txpool.AddressReserver       // Address reserver to ensure exclusivity across subpools
-	pending map[common.Address]*list     // All currently processable transactions
-	queue   map[common.Address]*list     // Queued but non-processable transactions
-	beats   map[common.Address]time.Time // Last heartbeat from each known account
-	all     *lookup                      // All transactions to allow lookups
-	priced  *pricedList                  // All transactions sorted by price
+	reserve txpool.AddressReserver                // Address reserver to ensure exclusivity across subpools
+	pending map[common.Address]*list              // All currently processable transactions
+	queue   map[common.Address]*list              // Queued but non-processable transactions
+	beats   map[common.Address]time.Time          // Last heartbeat from each known account
+	all     *lookup                               // All transactions to allow lookups
+	priced  *pricedList                           // All transactions sorted by price
+	auths   map[common.Address]*types.Transaction // All accounts with a pooled authorization
 
 	reqResetCh      chan *txpoolResetRequest
 	reqPromoteCh    chan *accountSet
@@ -254,6 +255,7 @@ func New(config Config, chain BlockChain) *LegacyPool {
 		pending:         make(map[common.Address]*list),
 		queue:           make(map[common.Address]*list),
 		beats:           make(map[common.Address]time.Time),
+		auths:           make(map[common.Address]*types.Transaction),
 		all:             newLookup(),
 		reqResetCh:      make(chan *txpoolResetRequest),
 		reqPromoteCh:    make(chan *accountSet),
@@ -640,6 +642,14 @@ func (pool *LegacyPool) validateTx(tx *types.Transaction, local bool) error {
 			if list := pool.queue[addr]; list != nil {
 				have += list.Len()
 			}
+			// Limit the number of setcode tranasactions per account
+			if pool.currentState.GetCode(addr) != nil {
+				if have >= 1 {
+					return have, 0
+				} else {
+					return have, 1 - have
+				}
+			}
 			return have, math.MaxInt
 		},
 		ExistingExpenditure: func(addr common.Address) *big.Int {
@@ -655,6 +665,25 @@ func (pool *LegacyPool) validateTx(tx *types.Transaction, local bool) error {
 				}
 			}
 			return nil
+		},
+		KnownConflicts: func(addrs []common.Address) []common.Address {
+			var conflicts []common.Address
+			for _, addr := range addrs {
+				var known bool
+				if list := pool.pending[addr]; list != nil {
+					known = true
+				}
+				if list := pool.queue[addr]; list != nil {
+					known = true
+				}
+				if _, ok := pool.auths[addr]; ok {
+					known = true
+				}
+				if known {
+					conflicts = append(conflicts, addr)
+				}
+			}
+			return conflicts
 		},
 	}
 	if err := txpool.ValidateTransactionWithState(tx, pool.signer, opts); err != nil {
@@ -693,6 +722,7 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 
 	// If the address is not yet known, request exclusivity to track the account
 	// only by this subpool until all transactions are evicted
+	// TODO: need to track every authority from setcode txs
 	var (
 		_, hasPending = pool.pending[from]
 		_, hasQueued  = pool.queue[from]
@@ -793,6 +823,11 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 		pool.priced.Put(tx, isLocal)
 		pool.journalTx(from, tx)
 		pool.queueTxEvent(tx)
+		for _, auth := range tx.AuthList() {
+			if addr, err := auth.Authority(); err == nil {
+				pool.auths[addr] = tx
+			}
+		}
 		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
 
 		// Successful promotion, bump the heartbeat
@@ -814,6 +849,11 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 		localGauge.Inc(1)
 	}
 	pool.journalTx(from, tx)
+	for _, auth := range tx.AuthList() {
+		if addr, err := auth.Authority(); err == nil {
+			pool.auths[addr] = tx
+		}
+	}
 
 	log.Trace("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
 	return replaced, nil
@@ -879,6 +919,10 @@ func (pool *LegacyPool) enqueueTx(hash common.Hash, tx *types.Transaction, local
 	// If we never record the heartbeat, do it right now.
 	if _, exist := pool.beats[from]; !exist {
 		pool.beats[from] = time.Now()
+	}
+	for _, auth := range tx.AuthList() {
+		addr, _ := auth.Authority()
+		pool.auths[addr] = tx
 	}
 	return old != nil, nil
 }
@@ -1129,6 +1173,12 @@ func (pool *LegacyPool) removeTx(hash common.Hash, outofbound bool, unreserve bo
 	}
 	if pool.locals.contains(addr) {
 		localGauge.Dec(1)
+	}
+	// Remove any authorities the pool was tracking.
+	for _, auth := range tx.AuthList() {
+		if addr, err := auth.Authority(); err == nil {
+			pool.auths[addr] = nil
+		}
 	}
 	// Remove the transaction from the pending lists and reset the account nonce
 	if pending := pool.pending[addr]; pending != nil {
