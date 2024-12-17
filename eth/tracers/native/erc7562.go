@@ -19,6 +19,7 @@ package native
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -29,24 +30,86 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
+	"runtime"
 )
 
-//go:generate go run github.com/fjl/gencodec -type callFrame -field-override callFrameMarshaling -out gen_callframe_json.go
+//go:generate go run github.com/fjl/gencodec -type callFrameWithOpcodes -field-override callFrameWithOpcodesMarshaling -out gen_callframewithopcodes_json.go
 
 func init() {
 	tracers.DefaultDirectory.Register("erc7562Tracer", newErc7562Tracer, false)
 }
 
 type callFrameWithOpcodes struct {
-	callFrame
-	AccessedSlots     accessedSlots          `json:"accessedSlots"`
-	ExtCodeAccessInfo []common.Address       `json:"extCodeAccessInfo"`
-	DeployedContracts []common.Address       `json:"deployedContracts"`
-	UsedOpcodes       map[vm.OpCode]bool     `json:"usedOpcodes"`
-	GasObserved       bool                   `json:"gasObserved"`
-	ContractSize      map[common.Address]int `json:"contractSize"`
-	OutOfGas          bool                   `json:"outOfGas"`
-	Calls             []callFrameWithOpcodes `json:"calls,omitempty" rlp:"optional"`
+	//callFrame
+	Type         vm.OpCode       `json:"-"`
+	From         common.Address  `json:"from"`
+	Gas          uint64          `json:"gas"`
+	GasUsed      uint64          `json:"gasUsed"`
+	To           *common.Address `json:"to,omitempty" rlp:"optional"`
+	Input        []byte          `json:"input" rlp:"optional"`
+	Output       []byte          `json:"output,omitempty" rlp:"optional"`
+	Error        string          `json:"error,omitempty" rlp:"optional"`
+	RevertReason string          `json:"revertReason,omitempty"`
+	//Calls        []callFrame     `json:"calls,omitempty" rlp:"optional"`
+	Logs []callLog `json:"logs,omitempty" rlp:"optional"`
+	// Placed at end on purpose. The RLP will be decoded to 0 instead of
+	// nil if there are non-empty elements after in the struct.
+	Value            *big.Int `json:"value,omitempty" rlp:"optional"`
+	revertedSnapshot bool
+
+	AccessedSlots     accessedSlots      `json:"accessedSlots"`
+	ExtCodeAccessInfo []common.Address   `json:"extCodeAccessInfo"`
+	DeployedContracts []common.Address   `json:"deployedContracts"`
+	UsedOpcodes       map[vm.OpCode]bool `json:"usedOpcodes"`
+	//GasObserved       bool                   `json:"gasObserved"`
+	ContractSize map[common.Address]int `json:"contractSize"`
+	OutOfGas     bool                   `json:"outOfGas"`
+	Calls        []callFrameWithOpcodes `json:"calls,omitempty" rlp:"optional"`
+}
+
+func (f callFrameWithOpcodes) TypeString() string {
+	return f.Type.String()
+}
+
+func (f callFrameWithOpcodes) failed() bool {
+	return len(f.Error) > 0 && f.revertedSnapshot
+}
+
+func (f *callFrameWithOpcodes) processOutput(output []byte, err error, reverted bool) {
+	output = common.CopyBytes(output)
+	// Clear error if tx wasn't reverted. This happened
+	// for pre-homestead contract storage OOG.
+	if err != nil && !reverted {
+		err = nil
+	}
+	if err == nil {
+		f.Output = output
+		return
+	}
+	f.Error = err.Error()
+	f.revertedSnapshot = reverted
+	if f.Type == vm.CREATE || f.Type == vm.CREATE2 {
+		f.To = nil
+	}
+	if !errors.Is(err, vm.ErrExecutionReverted) || len(output) == 0 {
+		return
+	}
+	f.Output = output
+	if len(output) < 4 {
+		return
+	}
+	if unpacked, err := abi.UnpackRevert(output); err == nil {
+		f.RevertReason = unpacked
+	}
+}
+
+type callFrameWithOpcodesMarshaling struct {
+	TypeString string `json:"type"`
+	Gas        hexutil.Uint64
+	GasUsed    hexutil.Uint64
+	Value      *hexutil.Big
+	Input      hexutil.Bytes
+	Output     hexutil.Bytes
 }
 
 // TODO: I suggest that we provide an `[]string` for all of these fields. Doing it for `Reads` as an example here.
@@ -66,6 +129,19 @@ type erc7562Tracer struct {
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastThreeOpCodes     []vm.OpCode
 	Keccak               []hexutil.Bytes `json:"keccak"`
+}
+
+// catchPanic handles panic recovery and logs the panic and stack trace.
+func catchPanic() {
+	if r := recover(); r != nil {
+		// Retrieve the function name
+		pc, _, _, _ := runtime.Caller(1)
+		funcName := runtime.FuncForPC(pc).Name()
+
+		// Log the panic and function name
+		log.Error("Panic in", funcName, r)
+		//debug.PrintStack()
+	}
 }
 
 // newCallTracer returns a native go tracer which tracks
@@ -132,12 +208,14 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 }
 
 func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
+	defer catchPanic()
 	t.env = env
 	t.gasLimit = tx.Gas()
 }
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	defer catchPanic()
 	t.depth = depth
 	// Skip if tracing was interrupted
 	if t.interrupt.Load() {
@@ -146,21 +224,21 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 
 	toCopy := to
 	call := callFrameWithOpcodes{
-		callFrame: callFrame{
-			Type:  vm.OpCode(typ),
-			From:  from,
-			To:    &toCopy,
-			Input: common.CopyBytes(input),
-			Gas:   gas,
-			Value: value},
+		Type:  vm.OpCode(typ),
+		From:  from,
+		To:    &toCopy,
+		Input: common.CopyBytes(input),
+		Gas:   gas,
+		Value: value,
 		AccessedSlots: accessedSlots{
 			Reads:           map[string][]string{},
 			Writes:          map[string]uint64{},
 			TransientReads:  map[string]uint64{},
 			TransientWrites: map[string]uint64{},
 		},
-		UsedOpcodes:  make(map[vm.OpCode]bool, 3),
-		ContractSize: make(map[common.Address]int, 1),
+		UsedOpcodes:       make(map[vm.OpCode]bool, 3),
+		ExtCodeAccessInfo: make([]common.Address, 0),
+		ContractSize:      make(map[common.Address]int, 1),
 	}
 	if depth == 0 {
 		call.Gas = t.gasLimit
@@ -178,6 +256,7 @@ func (t *erc7562Tracer) captureEnd(output []byte, gasUsed uint64, err error, rev
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	defer catchPanic()
 	if depth == 0 {
 		t.captureEnd(output, gasUsed, err, reverted)
 		return
@@ -204,19 +283,20 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 }
 
 func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
+	defer catchPanic()
 	// Error happened during tx validation.
 	if err != nil {
 		return
 	}
-	log.Error("WTF is receipt", receipt)
 	t.callstackWithOpcodes[0].GasUsed = receipt.GasUsed
 	if t.config.WithLog {
 		// Logs are not emitted when the call fails
-		clearFailedLogs(&t.callstackWithOpcodes[0].callFrame, false)
+		clearFailedLogs2(&t.callstackWithOpcodes[0], false)
 	}
 }
 
-func (t *erc7562Tracer) OnLog(log *types.Log) {
+func (t *erc7562Tracer) OnLog(log1 *types.Log) {
+	defer catchPanic()
 	// Only logs need to be captured via opcode processing
 	if !t.config.WithLog {
 		return
@@ -230,29 +310,87 @@ func (t *erc7562Tracer) OnLog(log *types.Log) {
 		return
 	}
 	l := callLog{
-		Address:  log.Address,
-		Topics:   log.Topics,
-		Data:     log.Data,
+		Address:  log1.Address,
+		Topics:   log1.Topics,
+		Data:     log1.Data,
 		Position: hexutil.Uint(len(t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Calls)),
 	}
 	t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Logs = append(t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Logs, l)
 }
 
+func (t *erc7562Tracer) handleLogs(opcode vm.OpCode, scope tracing.OpContext) {
+	defer catchPanic()
+	if opcode == vm.LOG0 || opcode == vm.LOG1 || opcode == vm.LOG2 || opcode == vm.LOG3 || opcode == vm.LOG4 {
+	}
+	//	count := int(opcode - vm.LOG0)
+	//	ofs := peepStack(scope.StackData(), 0)
+	//	len := peepStack(scope.StackData(), 1)
+	//	memory := scope.MemoryData()
+	//	topics := []hexutil.Bytes{}
+	//	for i := 0; i < count; i++ {
+	//		topics = append(topics, peepStack(scope.StackData(), 2+i).Bytes())
+	//		//topics = append(topics, scope.Stack.Back(2+i).Bytes())
+	//	}
+	//	log := make([]byte, len.Uint64())
+	//	copy(log, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
+	//	t.Logs = append(t.Logs, &logsItem{
+	//		Data:  log,
+	//		Topic: topics,
+	//	})
+	//}
+}
+
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
+	defer catchPanic()
 	if len(t.callstackWithOpcodes) != 1 {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
 
-	res, err := json.Marshal(t.callstackWithOpcodes[0])
+	callFrameJSON, err := json.Marshal(t.callstackWithOpcodes[0])
+
+	// Unmarshal the generated JSON into a map
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(callFrameJSON, &resultMap); err != nil {
+		return nil, err
+	}
+
+	// Add the additional fields
+	resultMap["lastOp"] = t.lastOp
+	resultMap["lastThreeOpCodes"] = t.lastThreeOpCodes
+	resultMap["keccak"] = t.Keccak
+
+	// Marshal the final map back to JSON
+	finalJSON, err := json.Marshal(resultMap)
 	if err != nil {
 		return nil, err
 	}
-	return res, t.reason
+	return finalJSON, t.reason
+}
+
+// Stop terminates execution of the tracer at the first opportune moment.
+func (t *erc7562Tracer) Stop(err error) {
+	defer catchPanic()
+	t.reason = err
+	t.interrupt.Store(true)
+}
+
+// clearFailedLogs clears the logs of a callframe and all its children
+// in case of execution failure.
+func clearFailedLogs2(cf *callFrameWithOpcodes, parentFailed bool) {
+	failed := cf.failed() || parentFailed
+	// Clear own logs
+	if failed {
+		cf.Logs = nil
+	}
+	for i := range cf.Calls {
+		clearFailedLogs2(&cf.Calls[i], failed)
+	}
 }
 
 func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+	defer catchPanic()
 	opcode := vm.OpCode(op)
 
 	stackSize := len(scope.StackData())
@@ -264,27 +402,17 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	if len(t.lastThreeOpCodes) > 3 {
 		t.lastThreeOpCodes = t.lastThreeOpCodes[1:]
 	}
-	//log.Error("WTF 2", pc, opcode.String())
-
 	size := len(t.callstackWithOpcodes)
 	currentCallFrame := t.callstackWithOpcodes[size-1]
-	//log.Error("WTF 3")
 	t.detectOutOfGas(gas, cost, opcode, currentCallFrame)
-	//log.Error("WTF 4")
 	t.handleExtOpcodes(opcode, currentCallFrame, stackTop3)
-	//log.Error("WTF 5")
 	t.handleAccessedContractSize(opcode, scope, currentCallFrame)
-	//log.Error("WTF 6")
 	t.handleGasObserved(opcode, currentCallFrame)
-	//log.Error("WTF 7")
 	t.storeUsedOpcode(opcode, currentCallFrame)
-	//log.Error("WTF 8")
 	t.handleStorageAccess(opcode, scope, currentCallFrame)
-	//log.Error("WTF 9")
 	t.storeKeccak(opcode, scope)
-	//log.Error("WTF 10")
 	t.lastOp = opcode
-	//log.Error("WTF END??", pc)
+	//t.handleLogs(opcode, scope)
 }
 
 func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
@@ -292,7 +420,8 @@ func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame cal
 	isCall := opcode == vm.CALL || opcode == vm.STATICCALL || opcode == vm.DELEGATECALL || opcode == vm.CALLCODE
 	pendingGasObserved := t.lastOp == vm.GAS && !isCall
 	if pendingGasObserved {
-		currentCallFrame.GasObserved = true
+		//currentCallFrame.GasObserved = true
+		currentCallFrame.UsedOpcodes[vm.GAS] = true
 	}
 }
 
@@ -337,26 +466,6 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 		t.Keccak = append(t.Keccak, keccak)
 	}
 }
-
-//func (t *erc7562Tracer) handleLogs(opcode vm.OpCode, scope tracing.OpContext) {
-//	if opcode == vm.LOG0 || opcode == vm.LOG1 || opcode == vm.LOG2 || opcode == vm.LOG3 || opcode == vm.LOG4 {
-//		count := int(opcode - vm.LOG0)
-//		ofs := peepStack(scope.StackData(), 0)
-//		len := peepStack(scope.StackData(), 1)
-//		memory := scope.MemoryData()
-//		topics := []hexutil.Bytes{}
-//		for i := 0; i < count; i++ {
-//			topics = append(topics, peepStack(scope.StackData(), 2+i).Bytes())
-//			//topics = append(topics, scope.Stack.Back(2+i).Bytes())
-//		}
-//		log := make([]byte, len.Uint64())
-//		copy(log, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
-//		t.Logs = append(t.Logs, &logsItem{
-//			Data:  log,
-//			Topic: topics,
-//		})
-//	}
-//}
 
 func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
 	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
