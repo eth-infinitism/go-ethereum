@@ -492,7 +492,7 @@ func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode
 
 // TODO: rewrite using byte opcode values, without relying on string manipulations
 func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes, stackTop3 partialStack) {
-	if isEXT(opcode) {
+	if isEXT(t.lastOp) {
 		addr := common.HexToAddress(stackTop3[0].Hex())
 
 		// TODO: THIS CODE SEEMS TO BE EQUIVALENT TO THE STRING BASED BUT IT IS LOGICALLY WRONG AND WILL NEVER WORK.
