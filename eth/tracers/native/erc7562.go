@@ -366,6 +366,14 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	if t.callstackWithOpcodes[0].OutOfGas {
+		log.Error("WTF TOP GETRESULT OOG?")
+	}
+	for i := range t.callstackWithOpcodes[0].Calls {
+		if t.callstackWithOpcodes[0].Calls[i].OutOfGas {
+			log.Error("WTF GETRESULT OOG?")
+		}
+	}
 	return finalJSON, t.reason
 }
 
@@ -403,7 +411,7 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 		t.lastThreeOpCodes = t.lastThreeOpCodes[1:]
 	}
 	size := len(t.callstackWithOpcodes)
-	currentCallFrame := t.callstackWithOpcodes[size-1]
+	currentCallFrame := &t.callstackWithOpcodes[size-1]
 	t.detectOutOfGas(gas, cost, opcode, currentCallFrame)
 	t.handleExtOpcodes(opcode, currentCallFrame, stackTop3)
 	t.handleAccessedContractSize(opcode, scope, currentCallFrame)
@@ -415,7 +423,7 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	//t.handleLogs(opcode, scope)
 }
 
-func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	// [OP-012]
 	isCall := opcode == vm.CALL || opcode == vm.STATICCALL || opcode == vm.DELEGATECALL || opcode == vm.CALLCODE
 	pendingGasObserved := t.lastOp == vm.GAS && !isCall
@@ -425,14 +433,14 @@ func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame cal
 	}
 }
 
-func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
 	if opcode != vm.GAS && !t.isIgnoredOpcode(opcode) {
 		currentCallFrame.UsedOpcodes[opcode] = true
 	}
 }
 
-func (t *erc7562Tracer) handleStorageAccess(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleStorageAccess(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame *callFrameWithOpcodes) {
 	if opcode == vm.SLOAD || opcode == vm.SSTORE || opcode == vm.TLOAD || opcode == vm.TSTORE {
 		slot := common.BytesToHash(peepStack(scope.StackData(), 0).Bytes())
 		slotHex := slot.Hex()
@@ -467,14 +475,18 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 	}
 }
 
-func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
+	if gas < cost {
+		log.Error("WTF OOG?")
+	}
 	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
 		currentCallFrame.OutOfGas = true
+		log.Error("WTF SSTORE OOG?", currentCallFrame.OutOfGas)
 	}
 }
 
 // TODO: rewrite using byte opcode values, without relying on string manipulations
-func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame callFrameWithOpcodes, stackTop3 partialStack) {
+func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes, stackTop3 partialStack) {
 	if isEXT(opcode) {
 		addr := common.HexToAddress(stackTop3[0].Hex())
 
@@ -488,7 +500,7 @@ func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame call
 	}
 }
 
-func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame *callFrameWithOpcodes) {
 	// [OP-041]
 	if isEXTorCALL(opcode) {
 		n := 0
