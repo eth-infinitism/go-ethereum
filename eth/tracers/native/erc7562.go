@@ -39,6 +39,11 @@ func init() {
 	tracers.DefaultDirectory.Register("erc7562Tracer", newErc7562Tracer, false)
 }
 
+type contractSizeWithOpcode struct {
+	ContractSize int       `json:"contractSize"`
+	Opcode       vm.OpCode `json:"opcode"`
+}
+
 type callFrameWithOpcodes struct {
 	//callFrame
 	Type         vm.OpCode       `json:"-"`
@@ -62,9 +67,9 @@ type callFrameWithOpcodes struct {
 	DeployedContracts []common.Address   `json:"deployedContracts"`
 	UsedOpcodes       map[vm.OpCode]bool `json:"usedOpcodes"`
 	//GasObserved       bool                   `json:"gasObserved"`
-	ContractSize map[common.Address]int `json:"contractSize"`
-	OutOfGas     bool                   `json:"outOfGas"`
-	Calls        []callFrameWithOpcodes `json:"calls,omitempty" rlp:"optional"`
+	ContractSize map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
+	OutOfGas     bool                                       `json:"outOfGas"`
+	Calls        []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
 }
 
 func (f callFrameWithOpcodes) TypeString() string {
@@ -238,7 +243,7 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 		},
 		UsedOpcodes:       make(map[vm.OpCode]bool, 3),
 		ExtCodeAccessInfo: make([]common.Address, 0),
-		ContractSize:      make(map[common.Address]int, 1),
+		ContractSize:      map[common.Address]*contractSizeWithOpcode{},
 	}
 	if depth == 0 {
 		call.Gas = t.gasLimit
@@ -509,7 +514,10 @@ func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope traci
 		}
 		addr := common.BytesToAddress(peepStack(scope.StackData(), n).Bytes())
 		if _, ok := currentCallFrame.ContractSize[addr]; !ok && !isAllowedPrecompile(addr) {
-			currentCallFrame.ContractSize[addr] = len(t.env.StateDB.GetCode(addr))
+			currentCallFrame.ContractSize[addr] = &contractSizeWithOpcode{
+				ContractSize: len(t.env.StateDB.GetCode(addr)),
+				Opcode:       opcode,
+			}
 		}
 	}
 }
