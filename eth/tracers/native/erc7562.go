@@ -31,6 +31,7 @@ import (
 	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
 	"runtime"
+	"runtime/debug"
 )
 
 //go:generate go run github.com/fjl/gencodec -type callFrameWithOpcodes -field-override callFrameWithOpcodesMarshaling -out gen_callframewithopcodes_json.go
@@ -125,14 +126,18 @@ type accessedSlots struct {
 	TransientWrites map[string]uint64   `json:"transientWrites"`
 }
 
+type opcodeWithPartialStack struct {
+	Opcode    vm.OpCode
+	StackTop3 []uint256.Int
+}
+
 type erc7562Tracer struct {
 	callTracer
 	env *tracing.VMContext
 
 	ignoredOpcodes       []vm.OpCode
-	lastOp               vm.OpCode
 	callstackWithOpcodes []callFrameWithOpcodes
-	lastThreeOpCodes     []vm.OpCode
+	lastThreeOpCodes     []*opcodeWithPartialStack
 	Keccak               []hexutil.Bytes `json:"keccak"`
 }
 
@@ -145,7 +150,7 @@ func catchPanic() {
 
 		// Log the panic and function name
 		log.Error("Panic in", funcName, r)
-		//debug.PrintStack()
+		debug.PrintStack()
 	}
 }
 
@@ -201,6 +206,7 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 	// and is populated on start and end.
 	return &erc7562Tracer{
 		callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1),
+		lastThreeOpCodes:     make([]*opcodeWithPartialStack, 0),
 		ignoredOpcodes:       ignoredOpcodes,
 		callTracer: callTracer{
 			config: callTracerConfig{
@@ -362,7 +368,6 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 	}
 
 	// Add the additional fields
-	resultMap["lastOp"] = t.lastOp
 	resultMap["lastThreeOpCodes"] = t.lastThreeOpCodes
 	resultMap["keccak"] = t.Keccak
 
@@ -370,14 +375,6 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 	finalJSON, err := json.Marshal(resultMap)
 	if err != nil {
 		return nil, err
-	}
-	if t.callstackWithOpcodes[0].OutOfGas {
-		log.Error("WTF TOP GETRESULT OOG?")
-	}
-	for i := range t.callstackWithOpcodes[0].Calls {
-		if t.callstackWithOpcodes[0].Calls[i].OutOfGas {
-			log.Error("WTF GETRESULT OOG?")
-		}
 	}
 	return finalJSON, t.reason
 }
@@ -407,31 +404,51 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	opcode := vm.OpCode(op)
 
 	stackSize := len(scope.StackData())
-	stackTop3 := partialStack{}
+	var stackTop3 []uint256.Int
 	for i := 0; i < 3 && i < stackSize; i++ {
-		stackTop3 = append(stackTop3, peepStack(scope.StackData(), i))
+		stackTop3 = append(stackTop3, *peepStack(scope.StackData(), i))
 	}
-	t.lastThreeOpCodes = append(t.lastThreeOpCodes, opcode)
+	t.lastThreeOpCodes = append(t.lastThreeOpCodes, &opcodeWithPartialStack{
+		Opcode:    opcode,
+		StackTop3: stackTop3,
+	})
 	if len(t.lastThreeOpCodes) > 3 {
 		t.lastThreeOpCodes = t.lastThreeOpCodes[1:]
+	}
+	t.handleReturnRevert(opcode)
+	var lastOpWithStack *opcodeWithPartialStack
+	if len(t.lastThreeOpCodes) >= 2 {
+		lastOpWithStack = t.lastThreeOpCodes[len(t.lastThreeOpCodes)-2]
 	}
 	size := len(t.callstackWithOpcodes)
 	currentCallFrame := &t.callstackWithOpcodes[size-1]
 	t.detectOutOfGas(gas, cost, opcode, currentCallFrame)
-	t.handleExtOpcodes(opcode, currentCallFrame, stackTop3)
+	if lastOpWithStack != nil {
+		t.handleExtOpcodes(lastOpWithStack, opcode, currentCallFrame)
+	}
 	t.handleAccessedContractSize(opcode, scope, currentCallFrame)
-	t.handleGasObserved(opcode, currentCallFrame)
+	if lastOpWithStack != nil {
+		t.handleGasObserved(lastOpWithStack.Opcode, opcode, currentCallFrame)
+	}
 	t.storeUsedOpcode(opcode, currentCallFrame)
 	t.handleStorageAccess(opcode, scope, currentCallFrame)
 	t.storeKeccak(opcode, scope)
-	t.lastOp = opcode
+	//t.lastOp = opcode
 	//t.handleLogs(opcode, scope)
 }
 
-func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
+func (t *erc7562Tracer) handleReturnRevert(opcode vm.OpCode) {
+	if opcode == vm.REVERT || opcode == vm.RETURN {
+		if len(t.lastThreeOpCodes) > 0 {
+			t.lastThreeOpCodes = t.lastThreeOpCodes[len(t.lastThreeOpCodes)-1:]
+		}
+	}
+}
+
+func (t *erc7562Tracer) handleGasObserved(lastOp vm.OpCode, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	// [OP-012]
 	isCall := opcode == vm.CALL || opcode == vm.STATICCALL || opcode == vm.DELEGATECALL || opcode == vm.CALLCODE
-	pendingGasObserved := t.lastOp == vm.GAS && !isCall
+	pendingGasObserved := lastOp == vm.GAS && !isCall
 	if pendingGasObserved {
 		//currentCallFrame.GasObserved = true
 		currentCallFrame.UsedOpcodes[vm.GAS] = true
@@ -481,25 +498,21 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 }
 
 func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
-	if gas < cost {
-		log.Error("WTF OOG?")
-	}
 	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
 		currentCallFrame.OutOfGas = true
-		log.Error("WTF SSTORE OOG?", currentCallFrame.OutOfGas)
 	}
 }
 
-// TODO: rewrite using byte opcode values, without relying on string manipulations
-func (t *erc7562Tracer) handleExtOpcodes(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes, stackTop3 partialStack) {
-	if isEXT(t.lastOp) {
-		addr := common.HexToAddress(stackTop3[0].Hex())
+func (t *erc7562Tracer) handleExtOpcodes(lastOpInfo *opcodeWithPartialStack, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
+	if isEXT(lastOpInfo.Opcode) {
+		addr := common.HexToAddress(lastOpInfo.StackTop3[0].Hex())
 
 		// TODO: THIS CODE SEEMS TO BE EQUIVALENT TO THE STRING BASED BUT IT IS LOGICALLY WRONG AND WILL NEVER WORK.
 		// TODO: INSTEAD WE MAY NEED TO DEFER ADDING ADDRESS TO 'ExtCodeAccessInfo' UNTIL AFTER THE 'ISZERO' CHECK.
 		// only store the last EXTCODE* opcode per address - could even be a boolean for our current use-case
 		// [OP-051]
-		if !(t.lastThreeOpCodes[1] == vm.EXTCODESIZE && t.lastThreeOpCodes[2] == vm.ISZERO) {
+
+		if !(t.lastThreeOpCodes[1].Opcode == vm.EXTCODESIZE && t.lastThreeOpCodes[2].Opcode == vm.ISZERO) {
 			currentCallFrame.ExtCodeAccessInfo = append(currentCallFrame.ExtCodeAccessInfo, addr)
 		}
 	}
