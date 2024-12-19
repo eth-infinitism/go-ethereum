@@ -28,10 +28,10 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
-	"github.com/status-im/keycard-go/hexutils"
 	"math/big"
 	"runtime"
 	"runtime/debug"
+	"sync/atomic"
 )
 
 //go:generate go run github.com/fjl/gencodec -type callFrameWithOpcodes -field-override callFrameWithOpcodesMarshaling -out gen_callframewithopcodes_json.go
@@ -115,7 +115,6 @@ type callFrameWithOpcodesMarshaling struct {
 	Output     hexutil.Bytes
 }
 
-// TODO: I suggest that we provide an `[]string` for all of these fields. Doing it for `Reads` as an example here.
 type accessedSlots struct {
 	Reads           map[string][]string `json:"reads"`
 	Writes          map[string]uint64   `json:"writes"`
@@ -124,17 +123,21 @@ type accessedSlots struct {
 }
 
 type opcodeWithPartialStack struct {
-	Opcode    vm.OpCode
-	StackTop3 []uint256.Int
+	Opcode        vm.OpCode
+	StackTopItems []uint256.Int
 }
 
 type erc7562Tracer struct {
-	callTracer
-	env *tracing.VMContext
+	config    erc7562TracerConfig
+	gasLimit  uint64
+	depth     int
+	interrupt atomic.Bool // Atomic flag to signal execution interruption
+	reason    error       // Textual reason for the interruption
+	env       *tracing.VMContext
 
 	ignoredOpcodes       map[vm.OpCode]struct{}
 	callstackWithOpcodes []callFrameWithOpcodes
-	lastThreeOpCodes     []*opcodeWithPartialStack
+	lastSeenOpcodes      []*opcodeWithPartialStack
 	Keccak               []hexutil.Bytes `json:"keccak"`
 }
 
@@ -173,8 +176,10 @@ func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig 
 }
 
 type erc7562TracerConfig struct {
-	IgnoredOpcodes *string `json:"ignoredOpcodes"` // Opcodes to ignore during OnOpcode hook execution
-	WithLog        bool    `json:"withLog"`        // If true, erc7562 tracer will collect event logs
+	LastSeenOpcodesSize int                    `json:"iastSeenOpcodesSize"`
+	StackTopItemsSize   int                    `json:"stackTopItemsSize"`
+	IgnoredOpcodes      map[vm.OpCode]struct{} `json:"ignoredOpcodes"` // Opcodes to ignore during OnOpcode hook execution
+	WithLog             bool                   `json:"withLog"`        // If true, erc7562 tracer will collect event logs
 }
 
 // Function to convert byte array to map[vm.OpCode]struct{}
@@ -186,6 +191,22 @@ func ConvertBytesToOpCodes(byteArray []byte) map[vm.OpCode]struct{} {
 	return opCodes
 }
 
+func getFullConfiguration(partial erc7562TracerConfig) erc7562TracerConfig {
+	config := partial
+
+	if config.IgnoredOpcodes == nil {
+		config.IgnoredOpcodes = defaultIgnoredOpcodes()
+	}
+	if config.LastSeenOpcodesSize == 0 {
+		config.LastSeenOpcodesSize = 3
+	}
+	if config.StackTopItemsSize == 0 {
+		config.StackTopItemsSize = 3
+	}
+
+	return config
+}
+
 func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562Tracer, error) {
 	var config erc7562TracerConfig
 	if cfg != nil {
@@ -193,25 +214,12 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 			return nil, err
 		}
 	}
-	var ignoredOpcodes map[vm.OpCode]struct{}
-	if config.IgnoredOpcodes == nil {
-		ignoredOpcodes = defaultIgnoredOpcodes()
-	} else {
-		ignoredOpcodes = ConvertBytesToOpCodes(hexutils.HexToBytes(*config.IgnoredOpcodes))
-	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
 	return &erc7562Tracer{
 		callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1),
-		lastThreeOpCodes:     make([]*opcodeWithPartialStack, 0),
-		ignoredOpcodes:       ignoredOpcodes,
-		callTracer: callTracer{
-			config: callTracerConfig{
-				WithLog: config.WithLog,
-				// Disabling the 'OnlyTopCall' option as it defeats the purpose of ERC-7562
-				OnlyTopCall: false,
-			},
-		},
+		lastSeenOpcodes:      make([]*opcodeWithPartialStack, 0),
+		config:               getFullConfiguration(config),
 	}, nil
 }
 
@@ -271,9 +279,6 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 	}
 
 	t.depth = depth - 1
-	if t.config.OnlyTopCall {
-		return
-	}
 
 	size := len(t.callstackWithOpcodes)
 	if size <= 1 {
@@ -307,10 +312,6 @@ func (t *erc7562Tracer) OnLog(log1 *types.Log) {
 	defer catchPanic()
 	// Only logs need to be captured via opcode processing
 	if !t.config.WithLog {
-		return
-	}
-	// Avoid processing nested calls when only caring about top call
-	if t.config.OnlyTopCall && t.depth > 0 {
 		return
 	}
 	// Skip if tracing was interrupted
@@ -400,21 +401,21 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	opcode := vm.OpCode(op)
 
 	stackSize := len(scope.StackData())
-	var stackTop3 []uint256.Int
-	for i := 0; i < 3 && i < stackSize; i++ {
-		stackTop3 = append(stackTop3, *peepStack(scope.StackData(), i))
+	var stackTopItems []uint256.Int
+	for i := 0; i < t.config.StackTopItemsSize && i < stackSize; i++ {
+		stackTopItems = append(stackTopItems, *peepStack(scope.StackData(), i))
 	}
-	t.lastThreeOpCodes = append(t.lastThreeOpCodes, &opcodeWithPartialStack{
-		Opcode:    opcode,
-		StackTop3: stackTop3,
+	t.lastSeenOpcodes = append(t.lastSeenOpcodes, &opcodeWithPartialStack{
+		Opcode:        opcode,
+		StackTopItems: stackTopItems,
 	})
-	if len(t.lastThreeOpCodes) > 3 {
-		t.lastThreeOpCodes = t.lastThreeOpCodes[1:]
+	if len(t.lastSeenOpcodes) > t.config.LastSeenOpcodesSize {
+		t.lastSeenOpcodes = t.lastSeenOpcodes[1:]
 	}
 	t.handleReturnRevert(opcode)
 	var lastOpWithStack *opcodeWithPartialStack
-	if len(t.lastThreeOpCodes) >= 2 {
-		lastOpWithStack = t.lastThreeOpCodes[len(t.lastThreeOpCodes)-2]
+	if len(t.lastSeenOpcodes) >= t.config.LastSeenOpcodesSize-1 {
+		lastOpWithStack = t.lastSeenOpcodes[len(t.lastSeenOpcodes)-2]
 	}
 	size := len(t.callstackWithOpcodes)
 	currentCallFrame := &t.callstackWithOpcodes[size-1]
@@ -433,8 +434,8 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 
 func (t *erc7562Tracer) handleReturnRevert(opcode vm.OpCode) {
 	if opcode == vm.REVERT || opcode == vm.RETURN {
-		if len(t.lastThreeOpCodes) > 0 {
-			t.lastThreeOpCodes = t.lastThreeOpCodes[len(t.lastThreeOpCodes)-1:]
+		if len(t.lastSeenOpcodes) > 0 {
+			t.lastSeenOpcodes = t.lastSeenOpcodes[len(t.lastSeenOpcodes)-1:]
 		}
 	}
 }
@@ -497,12 +498,12 @@ func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode
 
 func (t *erc7562Tracer) handleExtOpcodes(lastOpInfo *opcodeWithPartialStack, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	if isEXT(lastOpInfo.Opcode) {
-		addr := common.HexToAddress(lastOpInfo.StackTop3[0].Hex())
+		addr := common.HexToAddress(lastOpInfo.StackTopItems[0].Hex())
 
 		// only store the last EXTCODE* opcode per address - could even be a boolean for our current use-case
 		// [OP-051]
 
-		if !(t.lastThreeOpCodes[1].Opcode == vm.EXTCODESIZE && t.lastThreeOpCodes[2].Opcode == vm.ISZERO) {
+		if !(t.lastSeenOpcodes[1].Opcode == vm.EXTCODESIZE && t.lastSeenOpcodes[2].Opcode == vm.ISZERO) {
 			currentCallFrame.ExtCodeAccessInfo = append(currentCallFrame.ExtCodeAccessInfo, addr)
 		}
 	}
