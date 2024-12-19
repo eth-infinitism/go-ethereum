@@ -46,7 +46,6 @@ type contractSizeWithOpcode struct {
 }
 
 type callFrameWithOpcodes struct {
-	//callFrame
 	Type         vm.OpCode       `json:"-"`
 	From         common.Address  `json:"from"`
 	Gas          uint64          `json:"gas"`
@@ -56,21 +55,19 @@ type callFrameWithOpcodes struct {
 	Output       []byte          `json:"output,omitempty" rlp:"optional"`
 	Error        string          `json:"error,omitempty" rlp:"optional"`
 	RevertReason string          `json:"revertReason,omitempty"`
-	//Calls        []callFrame     `json:"calls,omitempty" rlp:"optional"`
-	Logs []callLog `json:"logs,omitempty" rlp:"optional"`
+	Logs         []callLog       `json:"logs,omitempty" rlp:"optional"`
 	// Placed at end on purpose. The RLP will be decoded to 0 instead of
 	// nil if there are non-empty elements after in the struct.
 	Value            *big.Int `json:"value,omitempty" rlp:"optional"`
 	revertedSnapshot bool
 
-	AccessedSlots     accessedSlots        `json:"accessedSlots"`
-	ExtCodeAccessInfo []common.Address     `json:"extCodeAccessInfo"`
-	DeployedContracts []common.Address     `json:"deployedContracts"`
-	UsedOpcodes       map[vm.OpCode]uint64 `json:"usedOpcodes"`
-	//GasObserved       bool                   `json:"gasObserved"`
-	ContractSize map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
-	OutOfGas     bool                                       `json:"outOfGas"`
-	Calls        []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
+	AccessedSlots     accessedSlots                              `json:"accessedSlots"`
+	ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
+	DeployedContracts []common.Address                           `json:"deployedContracts"`
+	UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
+	ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
+	OutOfGas          bool                                       `json:"outOfGas"`
+	Calls             []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
 }
 
 func (f callFrameWithOpcodes) TypeString() string {
@@ -135,7 +132,7 @@ type erc7562Tracer struct {
 	callTracer
 	env *tracing.VMContext
 
-	ignoredOpcodes       []vm.OpCode
+	ignoredOpcodes       map[vm.OpCode]struct{}
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastThreeOpCodes     []*opcodeWithPartialStack
 	Keccak               []hexutil.Bytes `json:"keccak"`
@@ -154,7 +151,7 @@ func catchPanic() {
 	}
 }
 
-// newCallTracer returns a native go tracer which tracks
+// newErc7562Tracer returns a native go tracer which tracks
 // call frames of a tx, and implements vm.EVMLogger.
 func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig *params.ChainConfig*/) (*tracers.Tracer, error) {
 	t, err := newErc7562TracerObject(ctx, cfg)
@@ -176,15 +173,15 @@ func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig 
 }
 
 type erc7562TracerConfig struct {
-	IgnoredOpcodes *string `json:"ignoredOpcodes"` // If true, call tracer won't collect any subcalls
-	WithLog        bool    `json:"withLog"`        // If true, call tracer will collect event logs
+	IgnoredOpcodes *string `json:"ignoredOpcodes"` // Opcodes to ignore during OnOpcode hook execution
+	WithLog        bool    `json:"withLog"`        // If true, erc7562 tracer will collect event logs
 }
 
-// Function to convert byte array to []vm.OpCode
-func ConvertBytesToOpCodes(byteArray []byte) []vm.OpCode {
-	opCodes := make([]vm.OpCode, len(byteArray))
-	for i, b := range byteArray {
-		opCodes[i] = vm.OpCode(b)
+// Function to convert byte array to map[vm.OpCode]struct{}
+func ConvertBytesToOpCodes(byteArray []byte) map[vm.OpCode]struct{} {
+	var opCodes map[vm.OpCode]struct{}
+	for _, b := range byteArray {
+		opCodes[vm.OpCode(b)] = struct{}{}
 	}
 	return opCodes
 }
@@ -196,7 +193,7 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 			return nil, err
 		}
 	}
-	var ignoredOpcodes []vm.OpCode
+	var ignoredOpcodes map[vm.OpCode]struct{}
 	if config.IgnoredOpcodes == nil {
 		ignoredOpcodes = defaultIgnoredOpcodes()
 	} else {
@@ -368,7 +365,6 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 	}
 
 	// Add the additional fields
-	resultMap["lastThreeOpCodes"] = t.lastThreeOpCodes
 	resultMap["keccak"] = t.Keccak
 
 	// Marshal the final map back to JSON
@@ -450,7 +446,6 @@ func (t *erc7562Tracer) handleGasObserved(lastOp vm.OpCode, opcode vm.OpCode, cu
 	isCall := opcode == vm.CALL || opcode == vm.STATICCALL || opcode == vm.DELEGATECALL || opcode == vm.CALLCODE
 	pendingGasObserved := lastOp == vm.GAS && !isCall
 	if pendingGasObserved {
-		//currentCallFrame.GasObserved = true
 		incrementCount(currentCallFrame.UsedOpcodes, vm.GAS)
 	}
 }
@@ -555,32 +550,30 @@ func isEXT(opcode vm.OpCode) bool {
 
 // Check if this opcode is ignored for the purposes of generating the used opcodes report
 func (t *erc7562Tracer) isIgnoredOpcode(opcode vm.OpCode) bool {
-	for _, ignoredOpcode := range t.ignoredOpcodes {
-		if opcode == ignoredOpcode {
-			return true
-		}
+	if _, ok := t.ignoredOpcodes[opcode]; ok {
+		return true
 	}
 	return false
 }
 
-func defaultIgnoredOpcodes() []vm.OpCode {
-	i := 0
-	ignoredOpcodes := make([]vm.OpCode, 100) // TODO count real length
+func defaultIgnoredOpcodes() map[vm.OpCode]struct{} {
+	ignored := make(map[vm.OpCode]struct{})
+
 	// Allow all PUSHx, DUPx and SWAPx opcodes as they have sequential codes
 	for op := vm.PUSH0; op < vm.SWAP16; op++ {
-		ignoredOpcodes[i] = op
-		i++
+		ignored[op] = struct{}{}
 	}
+
 	for _, op := range []vm.OpCode{
 		vm.POP, vm.ADD, vm.SUB, vm.MUL,
 		vm.DIV, vm.EQ, vm.LT, vm.GT,
 		vm.SLT, vm.SGT, vm.SHL, vm.SHR,
 		vm.AND, vm.OR, vm.NOT, vm.ISZERO,
 	} {
-		ignoredOpcodes[i] = op
-		i++
+		ignored[op] = struct{}{}
 	}
-	return ignoredOpcodes
+
+	return ignored
 }
 
 // not using 'isPrecompiled' to only allow the ones defined by the ERC-7562 as stateless precompiles
