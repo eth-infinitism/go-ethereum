@@ -299,7 +299,7 @@ func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
 	t.callstackWithOpcodes[0].GasUsed = receipt.GasUsed
 	if t.config.WithLog {
 		// Logs are not emitted when the call fails
-		clearFailedLogs2(&t.callstackWithOpcodes[0], false)
+		t.clearFailedLogs(&t.callstackWithOpcodes[0], false)
 	}
 }
 
@@ -384,14 +384,14 @@ func (t *erc7562Tracer) Stop(err error) {
 
 // clearFailedLogs clears the logs of a callframe and all its children
 // in case of execution failure.
-func clearFailedLogs2(cf *callFrameWithOpcodes, parentFailed bool) {
+func (t *erc7562Tracer) clearFailedLogs(cf *callFrameWithOpcodes, parentFailed bool) {
 	failed := cf.failed() || parentFailed
 	// Clear own logs
 	if failed {
 		cf.Logs = nil
 	}
 	for i := range cf.Calls {
-		clearFailedLogs2(&cf.Calls[i], failed)
+		t.clearFailedLogs(&cf.Calls[i], failed)
 	}
 }
 
@@ -429,8 +429,6 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	t.storeUsedOpcode(opcode, currentCallFrame)
 	t.handleStorageAccess(opcode, scope, currentCallFrame)
 	t.storeKeccak(opcode, scope)
-	//t.lastOp = opcode
-	//t.handleLogs(opcode, scope)
 }
 
 func (t *erc7562Tracer) handleReturnRevert(opcode vm.OpCode) {
@@ -443,8 +441,7 @@ func (t *erc7562Tracer) handleReturnRevert(opcode vm.OpCode) {
 
 func (t *erc7562Tracer) handleGasObserved(lastOp vm.OpCode, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	// [OP-012]
-	isCall := opcode == vm.CALL || opcode == vm.STATICCALL || opcode == vm.DELEGATECALL || opcode == vm.CALLCODE
-	pendingGasObserved := lastOp == vm.GAS && !isCall
+	pendingGasObserved := lastOp == vm.GAS && !isCall(opcode)
 	if pendingGasObserved {
 		incrementCount(currentCallFrame.UsedOpcodes, vm.GAS)
 	}
@@ -502,8 +499,6 @@ func (t *erc7562Tracer) handleExtOpcodes(lastOpInfo *opcodeWithPartialStack, opc
 	if isEXT(lastOpInfo.Opcode) {
 		addr := common.HexToAddress(lastOpInfo.StackTop3[0].Hex())
 
-		// TODO: THIS CODE SEEMS TO BE EQUIVALENT TO THE STRING BASED BUT IT IS LOGICALLY WRONG AND WILL NEVER WORK.
-		// TODO: INSTEAD WE MAY NEED TO DEFER ADDING ADDRESS TO 'ExtCodeAccessInfo' UNTIL AFTER THE 'ISZERO' CHECK.
 		// only store the last EXTCODE* opcode per address - could even be a boolean for our current use-case
 		// [OP-051]
 
@@ -535,17 +530,20 @@ func peepStack(stackData []uint256.Int, n int) *uint256.Int {
 }
 
 func isEXTorCALL(opcode vm.OpCode) bool {
-	return isEXT(opcode) ||
-		opcode == vm.CALL ||
-		opcode == vm.CALLCODE ||
-		opcode == vm.DELEGATECALL ||
-		opcode == vm.STATICCALL
+	return isEXT(opcode) || isCall(opcode)
 }
 
 func isEXT(opcode vm.OpCode) bool {
 	return opcode == vm.EXTCODEHASH ||
 		opcode == vm.EXTCODESIZE ||
 		opcode == vm.EXTCODECOPY
+}
+
+func isCall(opcode vm.OpCode) bool {
+	return opcode == vm.CALL ||
+		opcode == vm.CALLCODE ||
+		opcode == vm.DELEGATECALL ||
+		opcode == vm.STATICCALL
 }
 
 // Check if this opcode is ignored for the purposes of generating the used opcodes report
