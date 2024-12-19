@@ -289,6 +289,9 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 	t.callstackWithOpcodes = t.callstackWithOpcodes[:size-1]
 	size -= 1
 
+	if reverted && errors.Is(err, vm.ErrCodeStoreOutOfGas) || errors.Is(err, vm.ErrOutOfGas) {
+		call.OutOfGas = true
+	}
 	call.GasUsed = gasUsed
 	call.processOutput(output, err, reverted)
 	// Nest call into parent.
@@ -419,7 +422,6 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	}
 	size := len(t.callstackWithOpcodes)
 	currentCallFrame := &t.callstackWithOpcodes[size-1]
-	t.detectOutOfGas(gas, cost, opcode, currentCallFrame)
 	if lastOpWithStack != nil {
 		t.handleExtOpcodes(lastOpWithStack, opcode, currentCallFrame)
 	}
@@ -487,12 +489,6 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 		keccak := make([]byte, dataLength)
 		copy(keccak, memory[dataOffset:dataOffset+dataLength])
 		t.Keccak = append(t.Keccak, keccak)
-	}
-}
-
-func (t *erc7562Tracer) detectOutOfGas(gas uint64, cost uint64, opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
-	if gas < cost || (opcode == vm.SSTORE && gas < 2300) {
-		currentCallFrame.OutOfGas = true
 	}
 }
 
