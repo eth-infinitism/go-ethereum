@@ -30,7 +30,7 @@ func (c callFrameWithOpcodes) MarshalJSON() ([]byte, error) {
 		AccessedSlots     accessedSlots                              `json:"accessedSlots"`
 		ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
 		DeployedContracts []common.Address                           `json:"deployedContracts"`
-		UsedOpcodes       map[vm.OpCode]bool                         `json:"usedOpcodes"`
+		UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 		ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 		OutOfGas          bool                                       `json:"outOfGas"`
 		Calls             []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
@@ -76,7 +76,7 @@ func (c *callFrameWithOpcodes) UnmarshalJSON(input []byte) error {
 		AccessedSlots     *accessedSlots                             `json:"accessedSlots"`
 		ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
 		DeployedContracts []common.Address                           `json:"deployedContracts"`
-		UsedOpcodes       map[vm.OpCode]bool                         `json:"usedOpcodes"`
+		UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 		ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 		OutOfGas          *bool                                      `json:"outOfGas"`
 		Calls             []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`

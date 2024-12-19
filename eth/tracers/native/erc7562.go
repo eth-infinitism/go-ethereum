@@ -63,10 +63,10 @@ type callFrameWithOpcodes struct {
 	Value            *big.Int `json:"value,omitempty" rlp:"optional"`
 	revertedSnapshot bool
 
-	AccessedSlots     accessedSlots      `json:"accessedSlots"`
-	ExtCodeAccessInfo []common.Address   `json:"extCodeAccessInfo"`
-	DeployedContracts []common.Address   `json:"deployedContracts"`
-	UsedOpcodes       map[vm.OpCode]bool `json:"usedOpcodes"`
+	AccessedSlots     accessedSlots        `json:"accessedSlots"`
+	ExtCodeAccessInfo []common.Address     `json:"extCodeAccessInfo"`
+	DeployedContracts []common.Address     `json:"deployedContracts"`
+	UsedOpcodes       map[vm.OpCode]uint64 `json:"usedOpcodes"`
 	//GasObserved       bool                   `json:"gasObserved"`
 	ContractSize map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 	OutOfGas     bool                                       `json:"outOfGas"`
@@ -247,7 +247,7 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 			TransientReads:  map[string]uint64{},
 			TransientWrites: map[string]uint64{},
 		},
-		UsedOpcodes:       make(map[vm.OpCode]bool, 3),
+		UsedOpcodes:       map[vm.OpCode]uint64{},
 		ExtCodeAccessInfo: make([]common.Address, 0),
 		ContractSize:      map[common.Address]*contractSizeWithOpcode{},
 	}
@@ -451,14 +451,14 @@ func (t *erc7562Tracer) handleGasObserved(lastOp vm.OpCode, opcode vm.OpCode, cu
 	pendingGasObserved := lastOp == vm.GAS && !isCall
 	if pendingGasObserved {
 		//currentCallFrame.GasObserved = true
-		currentCallFrame.UsedOpcodes[vm.GAS] = true
+		incrementCount(currentCallFrame.UsedOpcodes, vm.GAS)
 	}
 }
 
 func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
 	if opcode != vm.GAS && !t.isIgnoredOpcode(opcode) {
-		currentCallFrame.UsedOpcodes[opcode] = true
+		incrementCount(currentCallFrame.UsedOpcodes, opcode)
 	}
 }
 
@@ -590,9 +590,6 @@ func isAllowedPrecompile(addr common.Address) bool {
 	return addrInt.Cmp(big.NewInt(0)) == 1 && addrInt.Cmp(big.NewInt(10)) == -1
 }
 
-func incrementCount(m map[string]uint64, k string) {
-	if _, ok := m[k]; !ok {
-		m[k] = 0
-	}
-	m[k]++
+func incrementCount[K comparable](m map[K]uint64, k K) {
+	m[k] = m[k] + 1
 }
