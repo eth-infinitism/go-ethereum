@@ -137,7 +137,7 @@ type erc7562Tracer struct {
 	ignoredOpcodes       map[vm.OpCode]struct{}
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastSeenOpcodes      []*opcodeWithPartialStack
-	Keccak               []hexutil.Bytes `json:"keccak"`
+	Keccak               map[string]struct{} `json:"keccak"`
 }
 
 // catchPanic handles panic recovery and logs the panic and stack trace.
@@ -218,6 +218,7 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 	return &erc7562Tracer{
 		callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1),
 		lastSeenOpcodes:      make([]*opcodeWithPartialStack, 0),
+		Keccak:               make(map[string]struct{}),
 		config:               getFullConfiguration(config),
 	}, nil
 }
@@ -288,7 +289,7 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 	t.callstackWithOpcodes = t.callstackWithOpcodes[:size-1]
 	size -= 1
 
-	if reverted && errors.Is(err, vm.ErrCodeStoreOutOfGas) || errors.Is(err, vm.ErrOutOfGas) {
+	if errors.Is(err, vm.ErrCodeStoreOutOfGas) || errors.Is(err, vm.ErrOutOfGas) {
 		call.OutOfGas = true
 	}
 	call.GasUsed = gasUsed
@@ -345,8 +346,14 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 		return nil, err
 	}
 
-	// Add the additional fields
-	resultMap["keccak"] = t.Keccak
+	// Converting keccak mapping to array
+	keccakArray := make([]hexutil.Bytes, len(t.Keccak))
+	i := 0
+	for k := range t.Keccak {
+		keccakArray[i] = hexutil.Bytes(k)
+		i++
+	}
+	resultMap["keccak"] = keccakArray
 
 	// Marshal the final map back to JSON
 	finalJSON, err := json.Marshal(resultMap)
@@ -465,7 +472,7 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 		memory := scope.MemoryData()
 		keccak := make([]byte, dataLength)
 		copy(keccak, memory[dataOffset:dataOffset+dataLength])
-		t.Keccak = append(t.Keccak, keccak)
+		t.Keccak[string(keccak)] = struct{}{}
 	}
 }
 
