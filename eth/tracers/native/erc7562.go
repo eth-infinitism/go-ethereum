@@ -63,7 +63,6 @@ type callFrameWithOpcodes struct {
 
 	AccessedSlots     accessedSlots                              `json:"accessedSlots"`
 	ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
-	DeployedContracts []common.Address                           `json:"deployedContracts"`
 	UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 	ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 	OutOfGas          bool                                       `json:"outOfGas"`
@@ -453,7 +452,7 @@ func (t *erc7562Tracer) handleStorageAccess(opcode vm.OpCode, scope tracing.OpCo
 			incrementCount(currentCallFrame.AccessedSlots.Writes, slotHex)
 		} else if opcode == vm.TLOAD {
 			incrementCount(currentCallFrame.AccessedSlots.TransientReads, slotHex)
-		} else if opcode == vm.TSTORE {
+		} else {
 			incrementCount(currentCallFrame.AccessedSlots.TransientWrites, slotHex)
 		}
 	}

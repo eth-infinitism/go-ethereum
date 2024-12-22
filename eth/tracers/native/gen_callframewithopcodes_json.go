@@ -29,7 +29,6 @@ func (c callFrameWithOpcodes) MarshalJSON() ([]byte, error) {
 		Value             *hexutil.Big                               `json:"value,omitempty" rlp:"optional"`
 		AccessedSlots     accessedSlots                              `json:"accessedSlots"`
 		ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
-		DeployedContracts []common.Address                           `json:"deployedContracts"`
 		UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 		ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 		OutOfGas          bool                                       `json:"outOfGas"`
@@ -50,7 +49,6 @@ func (c callFrameWithOpcodes) MarshalJSON() ([]byte, error) {
 	enc.Value = (*hexutil.Big)(c.Value)
 	enc.AccessedSlots = c.AccessedSlots
 	enc.ExtCodeAccessInfo = c.ExtCodeAccessInfo
-	enc.DeployedContracts = c.DeployedContracts
 	enc.UsedOpcodes = c.UsedOpcodes
 	enc.ContractSize = c.ContractSize
 	enc.OutOfGas = c.OutOfGas
@@ -75,7 +73,6 @@ func (c *callFrameWithOpcodes) UnmarshalJSON(input []byte) error {
 		Value             *hexutil.Big                               `json:"value,omitempty" rlp:"optional"`
 		AccessedSlots     *accessedSlots                             `json:"accessedSlots"`
 		ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
-		DeployedContracts []common.Address                           `json:"deployedContracts"`
 		UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 		ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 		OutOfGas          *bool                                      `json:"outOfGas"`
@@ -123,9 +120,6 @@ func (c *callFrameWithOpcodes) UnmarshalJSON(input []byte) error {
 	}
 	if dec.ExtCodeAccessInfo != nil {
 		c.ExtCodeAccessInfo = dec.ExtCodeAccessInfo
-	}
-	if dec.DeployedContracts != nil {
-		c.DeployedContracts = dec.DeployedContracts
 	}
 	if dec.UsedOpcodes != nil {
 		c.UsedOpcodes = dec.UsedOpcodes
