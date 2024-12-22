@@ -330,28 +330,6 @@ func (t *erc7562Tracer) OnLog(log1 *types.Log) {
 	t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Logs = append(t.callstackWithOpcodes[len(t.callstackWithOpcodes)-1].Logs, l)
 }
 
-func (t *erc7562Tracer) handleLogs(opcode vm.OpCode, scope tracing.OpContext) {
-	defer catchPanic()
-	if opcode == vm.LOG0 || opcode == vm.LOG1 || opcode == vm.LOG2 || opcode == vm.LOG3 || opcode == vm.LOG4 {
-	}
-	//	count := int(opcode - vm.LOG0)
-	//	ofs := peepStack(scope.StackData(), 0)
-	//	len := peepStack(scope.StackData(), 1)
-	//	memory := scope.MemoryData()
-	//	topics := []hexutil.Bytes{}
-	//	for i := 0; i < count; i++ {
-	//		topics = append(topics, peepStack(scope.StackData(), 2+i).Bytes())
-	//		//topics = append(topics, scope.Stack.Back(2+i).Bytes())
-	//	}
-	//	log := make([]byte, len.Uint64())
-	//	copy(log, memory[ofs.Uint64():ofs.Uint64()+len.Uint64()])
-	//	t.Logs = append(t.Logs, &logsItem{
-	//		Data:  log,
-	//		Topic: topics,
-	//	})
-	//}
-}
-
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
