@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"math/big"
 	"regexp"
@@ -55,7 +56,7 @@ type entryPointCall struct {
 
 const ValidationFramesMaxCount = 3
 
-func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+func newRip7560Tracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *params.ChainConfig) (*tracers.Tracer, error) {
 	var config prestateTracerConfig
 	if cfg != nil {
 		if err := json.Unmarshal(cfg, &config); err != nil {

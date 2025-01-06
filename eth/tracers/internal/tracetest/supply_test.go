@@ -86,7 +86,7 @@ func TestSupplyOmittedFields(t *testing.T) {
 
 	expected := supplyInfo{
 		Number:     0,
-		Hash:       common.HexToHash("0x52f276d96f0afaaf2c3cb358868bdc2779c4b0cb8de3e7e5302e247c0b66a703"),
+		Hash:       common.HexToHash("0x3055fc27d6b4a08eb07033a0d1ee755a4b2988086f28a6189eac1b507525eeb1"),
 		ParentHash: common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
 	}
 	actual := out[expected.Number]
@@ -398,7 +398,7 @@ func TestSupplySelfdestruct(t *testing.T) {
 }
 
 // Tests selfdestructing contract to send its balance to itself (burn).
-// It tests both cases of selfdestructing succeding and being reverted.
+// It tests both cases of selfdestructing succeeding and being reverted.
 //   - Contract A calls B and D.
 //   - Contract B selfdestructs and sends the eth1 to itself (Burn amount to be counted).
 //   - Contract C selfdestructs and sends the eth1 to itself.
@@ -557,7 +557,7 @@ func testSupplyTracer(t *testing.T, genesis *core.Genesis, gen func(*core.BlockG
 		return nil, nil, fmt.Errorf("failed to create call tracer: %v", err)
 	}
 
-	chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), core.DefaultCacheConfigWithScheme(rawdb.PathScheme), genesis, nil, engine, vm.Config{Tracer: tracer}, nil, nil)
+	chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), core.DefaultCacheConfigWithScheme(rawdb.PathScheme), genesis, nil, engine, vm.Config{Tracer: tracer}, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create tester chain: %v", err)
 	}
@@ -597,6 +597,7 @@ func testSupplyTracer(t *testing.T, genesis *core.Genesis, gen func(*core.BlockG
 }
 
 func compareAsJSON(t *testing.T, expected interface{}, actual interface{}) {
+	t.Helper()
 	want, err := json.Marshal(expected)
 	if err != nil {
 		t.Fatalf("failed to marshal expected value to JSON: %v", err)
@@ -608,6 +609,6 @@ func compareAsJSON(t *testing.T, expected interface{}, actual interface{}) {
 	}
 
 	if !bytes.Equal(want, have) {
-		t.Fatalf("incorrect supply info: expected %s, got %s", string(want), string(have))
+		t.Fatalf("incorrect supply info:\nwant %s\nhave %s", string(want), string(have))
 	}
 }

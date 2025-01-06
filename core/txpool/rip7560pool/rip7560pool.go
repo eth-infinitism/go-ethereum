@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/log"
@@ -185,6 +186,10 @@ func (pool *Rip7560BundlerPool) Get(hash common.Hash) *types.Transaction {
 	return nil
 }
 
+func (pool *Rip7560BundlerPool) GetBlobs(vhashes []common.Hash) ([]*kzg4844.Blob, []*kzg4844.Proof) {
+	return nil, nil
+}
+
 func (pool *Rip7560BundlerPool) Add(_ []*types.Transaction, _ bool, _ bool) []error {
 	return nil
 }
@@ -273,6 +278,14 @@ func (pool *Rip7560BundlerPool) GetRip7560BundleStatus(hash common.Hash) (*types
 	return pool.includedBundles[hash], nil
 }
 
+func (pool *Rip7560BundlerPool) Clear() {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	pool.pendingBundles = make([]*types.ExternallyReceivedBundle, 0)
+	pool.includedBundles = make(map[common.Hash]*types.BundleReceipt)
+}
+
 type GetRip7560BundleArgs struct {
 	MinBaseFee    uint64
 	MaxBundleGas  uint64
@@ -320,7 +333,7 @@ func (pool *Rip7560BundlerPool) fetchBundleFromBundler() (*types.ExternallyRecei
 	}
 	txs := make([]*types.Transaction, len(chosenBundle))
 	for i, tx := range chosenBundle {
-		txs[i] = tx.ToTransaction()
+		txs[i] = tx.ToTransaction(types.Rip7560Type)
 	}
 	bundleHash := ethapi.CalculateBundleHash(txs)
 	return &types.ExternallyReceivedBundle{

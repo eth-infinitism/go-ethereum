@@ -16,7 +16,7 @@ func (s *TransactionAPI) SendRip7560TransactionsBundle(ctx context.Context, args
 	}
 	txs := make([]*types.Transaction, len(args))
 	for i := 0; i < len(args); i++ {
-		txs[i] = args[i].ToTransaction()
+		txs[i] = args[i].ToTransaction(types.Rip7560Type)
 	}
 	bundle := &types.ExternallyReceivedBundle{
 		BundlerId:     bundlerId,

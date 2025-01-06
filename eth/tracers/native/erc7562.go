@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"math/big"
 	"runtime"
@@ -155,7 +156,7 @@ func catchPanic() {
 
 // newErc7562Tracer returns a native go tracer which tracks
 // call frames of a tx, and implements vm.EVMLogger.
-func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage /*, chainConfig *params.ChainConfig*/) (*tracers.Tracer, error) {
+func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *params.ChainConfig) (*tracers.Tracer, error) {
 	t, err := newErc7562TracerObject(ctx, cfg)
 	if err != nil {
 		return nil, err

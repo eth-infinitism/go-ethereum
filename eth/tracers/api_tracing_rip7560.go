@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
+	"math"
 	"math/big"
 	"time"
 )
@@ -50,7 +50,7 @@ func (api *Rip7560API) TraceRip7560Validation(
 	}
 	var (
 		//msg         = args.ToMessage(vmctx.BaseFee)
-		tx          = args.ToTransaction()
+		tx          = args.ToTransaction(types.Rip7560Type)
 		traceConfig *TraceConfig
 	)
 	if config != nil {
@@ -111,13 +111,13 @@ func (api *Rip7560API) traceTx(
 	//		Stop:      logger.Stop,
 	//	}
 	//} else {
-	tracer, err = DefaultDirectory.New("rip7560Validation", txctx, config.TracerConfig)
+	tracer, err = DefaultDirectory.New("rip7560Validation", txctx, config.TracerConfig, api.backend.ChainConfig())
 	//	if err != nil {
 	//		return nil, err
 	//	}
 	//}
-	vmenv := vm.NewEVM(vmctx, vm.TxContext{GasPrice: big.NewInt(0)}, statedb, api.backend.ChainConfig(), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
-	statedb.SetLogger(tracer.Hooks)
+	vmenv := vm.NewEVM(vmctx, statedb, api.backend.ChainConfig(), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
+	vmenv.SetTxContext(vm.TxContext{GasPrice: big.NewInt(0)})
 
 	// Define a meaningful timeout of a single transaction trace
 	if config.Timeout != nil {

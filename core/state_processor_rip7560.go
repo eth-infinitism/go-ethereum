@@ -6,7 +6,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -14,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"math"
 	"math/big"
 )
 
@@ -271,7 +271,7 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 // CheckNonceRip7560 checks nonce of RIP-7560 transactions.
 // Transactions that don't rely on RIP-7712 two-dimensional nonces are checked statically.
 // Transactions using RIP-7712 two-dimensional nonces execute an extra validation frame on-chain.
-func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
+func CheckNonceRip7560(st *stateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
 	if tx.IsRip7712Nonce() {
 		return performNonceCheckFrameRip7712(st, tx)
 	}
@@ -289,7 +289,7 @@ func CheckNonceRip7560(st *StateTransition, tx *types.Rip7560AccountAbstractionT
 	return 0, nil
 }
 
-func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
+func performNonceCheckFrameRip7712(st *stateTransition, tx *types.Rip7560AccountAbstractionTx) (uint64, error) {
 	if !st.evm.ChainConfig().IsRIP7712(st.evm.Context.BlockNumber) {
 		return 0, wrapError(fmt.Errorf("RIP-7712 nonce is disabled"))
 	}
@@ -308,7 +308,7 @@ func performNonceCheckFrameRip7712(st *StateTransition, tx *types.Rip7560Account
 }
 
 // call a frame in the context of this state transition.
-func CallFrame(st *StateTransition, from *common.Address, to *common.Address, data []byte, gasLimit uint64) *ExecutionResult {
+func CallFrame(st *stateTransition, from *common.Address, to *common.Address, data []byte, gasLimit uint64) *ExecutionResult {
 	sender := vm.AccountRef(*from)
 	retData, gasRemaining, err := st.evm.Call(sender, *to, data, gasLimit, uint256.NewInt(0))
 	usedGas := gasLimit - gasRemaining
@@ -352,7 +352,8 @@ func ApplyRip7560ValidationPhases(
 		Origin:   *aatx.Sender,
 		GasPrice: gasPrice,
 	}
-	evm := vm.NewEVM(blockContext, txContext, statedb, chainConfig, cfg)
+	evm := vm.NewEVM(blockContext, statedb, chainConfig, cfg)
+	evm.SetTxContext(txContext)
 	rules := evm.ChainConfig().Rules(evm.Context.BlockNumber, evm.Context.Random != nil, evm.Context.Time)
 
 	statedb.Prepare(rules, *sender, evm.Context.Coinbase, &AA_ENTRY_POINT, vm.ActivePrecompiles(rules), tx.AccessList())
@@ -375,7 +376,7 @@ func ApplyRip7560ValidationPhases(
 		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, common.Address{})
 	}
 
-	st := NewStateTransition(evm, nil, gp)
+	st := newStateTransition(evm, nil, gp)
 	st.initialGas = gasLimit
 	st.gasRemaining = gasLimit
 
@@ -568,7 +569,7 @@ func performStaticValidation(
 	return nil
 }
 
-func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
+func applyPaymasterValidationFrame(st *stateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	aatx := tx.Rip7560TransactionData()
 	var pmValidationUsedGas uint64
@@ -609,7 +610,7 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 	return apd.Context, pmValidationUsedGas, apd.ValidAfter.Uint64(), apd.ValidUntil.Uint64(), nil
 }
 
-func applyPaymasterPostOpFrame(st *StateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, success bool, gasUsed uint64) *ExecutionResult {
+func applyPaymasterPostOpFrame(st *stateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, success bool, gasUsed uint64) *ExecutionResult {
 	var paymasterPostOpResult *ExecutionResult
 	paymasterPostOpMsg := preparePostOpMessage(vpr, success, gasUsed)
 	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg, aatx.PostOpGas)
@@ -644,8 +645,9 @@ func ApplyRip7560ExecutionPhase(
 		GasPrice: vpr.EffectiveGasPrice.ToBig(),
 	}
 	txContext.Origin = *aatx.Sender
-	evm := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
-	st := NewStateTransition(evm, nil, gp)
+	evm := vm.NewEVM(blockContext, statedb, config, cfg)
+	evm.SetTxContext(txContext)
+	st := newStateTransition(evm, nil, gp)
 	st.initialGas = math.MaxUint64
 	st.gasRemaining = math.MaxUint64
 
@@ -820,12 +822,15 @@ func injectEvent(topics []common.Hash, data []byte, blockNumber uint64, statedb 
 }
 
 // extracted from TransitionDb()
-func payCoinbase(st *StateTransition, msg *types.Rip7560AccountAbstractionTx, gasUsed uint64) {
+func payCoinbase(st *stateTransition, msg *types.Rip7560AccountAbstractionTx, gasUsed uint64) {
 	rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, st.evm.Context.Random != nil, st.evm.Context.Time)
 
 	effectiveTip := msg.GasTipCap
 	if rules.IsLondon {
-		effectiveTip = math.BigMin(msg.GasTipCap, new(big.Int).Sub(msg.GasFeeCap, st.evm.Context.BaseFee))
+		effectiveTip = new(big.Int).Sub(msg.GasFeeCap, st.evm.Context.BaseFee)
+		if effectiveTip.Cmp(msg.GasTipCap) > 0 {
+			effectiveTip = msg.GasTipCap
+		}
 	}
 
 	effectiveTipU256, _ := uint256.FromBig(effectiveTip)
@@ -840,7 +845,7 @@ func payCoinbase(st *StateTransition, msg *types.Rip7560AccountAbstractionTx, ga
 		st.state.AddBalance(st.evm.Context.Coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
 		// add the coinbase to the witness iff the fee is greater than 0
 		if rules.IsEIP4762 && fee.Sign() != 0 {
-			st.evm.AccessEvents.BalanceGas(st.evm.Context.Coinbase, true)
+			st.evm.AccessEvents.AddAccount(st.evm.Context.Coinbase, true)
 		}
 	}
 }
