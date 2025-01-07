@@ -168,4 +168,9 @@ type SubPool interface {
 
 	// Clear removes all tracked transactions from the pool
 	Clear()
+
+	// RIP-7560 specific subpool functions, other subpools should ignore these
+	SubmitRip7560Bundle(bundle *types.ExternallyReceivedBundle) error
+	GetRip7560BundleStatus(hash common.Hash) (*types.BundleReceipt, error)
+	PendingRip7560Bundle() (*types.ExternallyReceivedBundle, error)
 }
