@@ -49,6 +49,7 @@ const (
 	DynamicFeeTxType = 0x02
 	BlobTxType       = 0x03
 	SetCodeTxType    = 0x04
+	Rip7560Type      = 0x05
 )
 
 // Transaction is an Ethereum transaction.
@@ -208,6 +209,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(BlobTx)
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
+	case Rip7560Type:
+		inner = new(Rip7560AccountAbstractionTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -482,6 +485,13 @@ func (tx *Transaction) SetCodeAuthorizations() []SetCodeAuthorization {
 	}
 	return setcodetx.AuthList
 }
+
+func (tx *Transaction) Rip7560TransactionData() *Rip7560AccountAbstractionTx {
+	inner := tx.inner
+	ptr := inner.(*Rip7560AccountAbstractionTx)
+	return ptr
+}
+
 
 // SetTime sets the decoding time of a transaction. This is used by tests to set
 // arbitrary times and by persistent transaction pools when loading old txs from

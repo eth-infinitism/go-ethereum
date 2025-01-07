@@ -77,6 +77,22 @@ type TransactionArgs struct {
 
 	// This configures whether blobs are allowed to be passed.
 	blobSidecarAllowed bool
+
+	// Introduced by RIP-7560 Transaction
+	Sender            *common.Address `json:"sender"`
+	AuthorizationData *hexutil.Bytes  `json:"authorizationData,omitempty"`
+	ExecutionData     *hexutil.Bytes  `json:"executionData,omitempty"`
+	Paymaster         *common.Address `json:"paymaster,omitempty"`
+	PaymasterData     *hexutil.Bytes  `json:"paymasterData,omitempty"`
+	Deployer          *common.Address `json:"deployer,omitempty"`
+	DeployerData      *hexutil.Bytes  `json:"deployerData,omitempty"`
+	BuilderFee        *hexutil.Big    `json:"builderFee,omitempty"`
+	ValidationGas     *hexutil.Uint64 `json:"verificationGasLimit"`
+	PaymasterGas      *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
+	PostOpGas         *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
+
+	// Introduced by RIP-7712 Transaction
+	NonceKey *hexutil.Big `json:"nonceKey,omitempty"`
 }
 
 // from retrieves the transaction sender address.
@@ -104,6 +120,9 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, skipGas
 		return err
 	}
 	if err := args.setFeeDefaults(ctx, b, b.CurrentHeader()); err != nil {
+		return err
+	}
+	if err := args.set7560Defaults(ctx, b); err != nil {
 		return err
 	}
 
@@ -183,6 +202,25 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, skipGas
 		args.ChainID = (*hexutil.Big)(want)
 	}
 	return nil
+}
+
+func (args *TransactionArgs) set7560Defaults(ctx context.Context, b Backend) error {
+	// Not 7560 tx
+	if args.Sender == nil {
+		return nil
+	}
+	if args.Paymaster == nil {
+		log.Error("set7560Defaults setting default paymaster fields")
+		args.Paymaster = &common.Address{}
+		args.PaymasterData = &hexutil.Bytes{}
+	}
+	if args.Deployer == nil {
+		log.Error("set7560Defaults setting default deployer fields")
+		args.Deployer = &common.Address{}
+		args.DeployerData = &hexutil.Bytes{}
+	}
+	return nil
+
 }
 
 // setFeeDefaults fills in default fee values for unspecified tx fields.
@@ -472,11 +510,20 @@ func (args *TransactionArgs) ToMessage(baseFee *big.Int, skipNonceCheck, skipEoA
 	}
 }
 
+func toUint64(b *hexutil.Uint64) uint64 {
+	if b == nil {
+		return 0
+	}
+	return uint64(*b)
+}
+
 // ToTransaction converts the arguments to a transaction.
 // This assumes that setDefaults has been called.
 func (args *TransactionArgs) ToTransaction(defaultType int) *types.Transaction {
 	usedType := types.LegacyTxType
 	switch {
+	case args.Sender != nil || defaultType == types.Rip7560Type:
+		usedType = types.Rip7560Type
 	case args.AuthorizationList != nil || defaultType == types.SetCodeTxType:
 		usedType = types.SetCodeTxType
 	case args.BlobHashes != nil || defaultType == types.BlobTxType:
@@ -492,6 +539,46 @@ func (args *TransactionArgs) ToTransaction(defaultType int) *types.Transaction {
 	}
 	var data types.TxData
 	switch usedType {
+	case types.Rip7560Type:
+		al := types.AccessList{}
+		if args.AccessList != nil {
+			al = *args.AccessList
+		}
+		aatx := types.Rip7560AccountAbstractionTx{
+			//To:            &common.Address{},
+			ChainID:   (*big.Int)(args.ChainID),
+			Gas:       uint64(*args.Gas),
+			NonceKey:  (*big.Int)(args.NonceKey),
+			Nonce:     uint64(*args.Nonce),
+			GasFeeCap: (*big.Int)(args.MaxFeePerGas),
+			GasTipCap: (*big.Int)(args.MaxPriorityFeePerGas),
+			//Value:         (*big.Int)(args.Value),
+			ExecutionData: *args.ExecutionData,
+			AccessList:    al,
+			// RIP-7560 parameters
+			Sender:                      args.Sender,
+			AuthorizationData:           *args.AuthorizationData,
+			Paymaster:                   args.Paymaster,
+			PaymasterData:               *args.PaymasterData,
+			Deployer:                    args.Deployer,
+			DeployerData:                *args.DeployerData,
+			BuilderFee:                  (*big.Int)(args.BuilderFee),
+			ValidationGasLimit:          toUint64(args.ValidationGas),
+			PaymasterValidationGasLimit: toUint64(args.PaymasterGas),
+			PostOpGas:                   toUint64(args.PostOpGas),
+		}
+
+		zeroAddress := common.Address{}
+		if aatx.Paymaster != nil && zeroAddress.Cmp(*aatx.Paymaster) == 0 {
+			aatx.Paymaster = nil
+		}
+		if aatx.Deployer != nil && zeroAddress.Cmp(*aatx.Deployer) == 0 {
+			aatx.Deployer = nil
+		}
+
+		data = &aatx
+		hash := types.NewTx(data).Hash()
+		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex(), "hash", hash)
 	case types.SetCodeTxType:
 		al := types.AccessList{}
 		if args.AccessList != nil {

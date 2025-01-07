@@ -119,6 +119,8 @@ type BlockChain interface {
 
 	// StateAt returns a state database for a given root hash (generally the head).
 	StateAt(root common.Hash) (*state.StateDB, error)
+
+	GetReceiptsByHash(hash common.Hash) types.Receipts
 }
 
 // Config are the configuration parameters of the transaction pool.
@@ -1962,8 +1964,6 @@ func numSlots(tx *types.Transaction) int {
 	return int((tx.Size() + txSlotSize - 1) / txSlotSize)
 }
 
-// Clear implements txpool.SubPool, removing all tracked txs from the pool
-// and rotating the journal.
 func (pool *LegacyPool) Clear() {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
@@ -2001,4 +2001,19 @@ func (pool *LegacyPool) Clear() {
 			log.Warn("Failed to rotate transaction journal", "err", err)
 		}
 	}
+}
+
+func (pool *LegacyPool) SubmitRip7560Bundle(_ *types.ExternallyReceivedBundle) error {
+	// nothing to do here
+	return nil
+}
+
+func (pool *LegacyPool) GetRip7560BundleStatus(_ common.Hash) (*types.BundleReceipt, error) {
+	// nothing to do here
+	return nil, nil
+}
+
+func (pool *LegacyPool) PendingRip7560Bundle() (*types.ExternallyReceivedBundle, error) {
+	// nothing to do here
+	return nil, nil
 }
