@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -140,6 +141,7 @@ type erc7562Tracer struct {
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastOpWithStack      *opcodeWithPartialStack
 	Keccak               map[string]struct{} `json:"keccak"`
+	transactionType      uint8
 }
 
 // catchPanic handles panic recovery and logs the panic and stack trace.
@@ -215,6 +217,7 @@ func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction,
 	defer catchPanic()
 	t.env = env
 	t.gasLimit = tx.Gas()
+	t.transactionType = tx.Type()
 }
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
@@ -322,6 +325,20 @@ func (t *erc7562Tracer) OnLog(log1 *types.Log) {
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 	defer catchPanic()
+
+	if t.transactionType == types.Rip7560Type {
+		realStack := t.callstackWithOpcodes
+		t.callstackWithOpcodes = make([]callFrameWithOpcodes, 1)
+		t.callstackWithOpcodes[0] = callFrameWithOpcodes{
+			From:              common.Address{},
+			To:                &core.AA_ENTRY_POINT,
+			Calls:             realStack,
+			ContractSize:      make(map[common.Address]*contractSizeWithOpcode),
+			ExtCodeAccessInfo: make([]common.Address, 0),
+			UsedOpcodes:       make(map[vm.OpCode]uint64),
+		}
+	}
+
 	if len(t.callstackWithOpcodes) != 1 {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
