@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -111,7 +110,7 @@ func (api *Rip7560API) traceTx(
 	//		Stop:      logger.Stop,
 	//	}
 	//} else {
-	tracer, err = DefaultDirectory.New("rip7560Validation", txctx, config.TracerConfig, api.backend.ChainConfig())
+	tracer, err = DefaultDirectory.New("erc7562Tracer", txctx, config.TracerConfig, api.backend.ChainConfig())
 	//	if err != nil {
 	//		return nil, err
 	//	}
@@ -139,12 +138,6 @@ func (api *Rip7560API) traceTx(
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-
-	// TODO: this is added to allow our bundler checking the 'TraceValidation' API is supported on Geth
-	if tx.Rip7560TransactionData().Sender.Cmp(common.HexToAddress("0x0000000000000000000000000000000000000000")) == 0 {
-		result, err := tracer.GetResult()
-		return result, err
-	}
 
 	_, err = core.ApplyRip7560ValidationPhases(api.backend.ChainConfig(), api.chainContext(ctx), nil, gp, statedb, block.Header(), tx, vmenv.Config)
 	if err != nil {
