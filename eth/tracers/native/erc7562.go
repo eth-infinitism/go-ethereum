@@ -1,4 +1,4 @@
-// Copyright 2021 The go-ethereum Authors
+// Copyright 2025 The go-ethereum Authors
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -20,8 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
-	"runtime"
-	"runtime/debug"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -32,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 )
@@ -49,20 +46,7 @@ type contractSizeWithOpcode struct {
 }
 
 type callFrameWithOpcodes struct {
-	Type         vm.OpCode       `json:"-"`
-	From         common.Address  `json:"from"`
-	Gas          uint64          `json:"gas"`
-	GasUsed      uint64          `json:"gasUsed"`
-	To           *common.Address `json:"to,omitempty" rlp:"optional"`
-	Input        []byte          `json:"input" rlp:"optional"`
-	Output       []byte          `json:"output,omitempty" rlp:"optional"`
-	Error        string          `json:"error,omitempty" rlp:"optional"`
-	RevertReason string          `json:"revertReason,omitempty"`
-	Logs         []callLog       `json:"logs,omitempty" rlp:"optional"`
-	// Placed at end on purpose. The RLP will be decoded to 0 instead of
-	// nil if there are non-empty elements after in the struct.
-	Value            *big.Int `json:"value,omitempty" rlp:"optional"`
-	revertedSnapshot bool
+	callFrame
 
 	AccessedSlots     accessedSlots                              `json:"accessedSlots"`
 	ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
@@ -144,22 +128,9 @@ type erc7562Tracer struct {
 	transactionType      uint8
 }
 
-// catchPanic handles panic recovery and logs the panic and stack trace.
-func catchPanic() {
-	if r := recover(); r != nil {
-		// Retrieve the function name
-		pc, _, _, _ := runtime.Caller(1)
-		funcName := runtime.FuncForPC(pc).Name()
-
-		// Log the panic and function name
-		log.Error("Panic in", funcName, r)
-		debug.PrintStack()
-	}
-}
-
 // newErc7562Tracer returns a native go tracer which tracks
 // call frames of a tx, and implements vm.EVMLogger.
-func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *params.ChainConfig) (*tracers.Tracer, error) {
+func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage, _ *params.ChainConfig) (*tracers.Tracer, error) {
 	t, err := newErc7562TracerObject(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -214,7 +185,6 @@ func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562
 }
 
 func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
-	defer catchPanic()
 	t.env = env
 	t.gasLimit = tx.Gas()
 	t.transactionType = tx.Type()
@@ -222,7 +192,6 @@ func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction,
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-	defer catchPanic()
 	t.depth = depth
 	// Skip if tracing was interrupted
 	if t.interrupt.Load() {
@@ -231,12 +200,14 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 
 	toCopy := to
 	call := callFrameWithOpcodes{
-		Type:  vm.OpCode(typ),
-		From:  from,
-		To:    &toCopy,
-		Input: common.CopyBytes(input),
-		Gas:   gas,
-		Value: value,
+		callFrame: callFrame{
+			Type:  vm.OpCode(typ),
+			From:  from,
+			To:    &toCopy,
+			Input: common.CopyBytes(input),
+			Gas:   gas,
+			Value: value,
+		},
 		AccessedSlots: accessedSlots{
 			Reads:           map[string][]string{},
 			Writes:          map[string]uint64{},
@@ -253,7 +224,7 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 	t.callstackWithOpcodes = append(t.callstackWithOpcodes, call)
 }
 
-func (t *erc7562Tracer) captureEnd(output []byte, gasUsed uint64, err error, reverted bool) {
+func (t *erc7562Tracer) captureEnd(output []byte, err error, reverted bool) {
 	if len(t.callstackWithOpcodes) != 1 {
 		return
 	}
@@ -263,9 +234,8 @@ func (t *erc7562Tracer) captureEnd(output []byte, gasUsed uint64, err error, rev
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
-	defer catchPanic()
 	if depth == 0 {
-		t.captureEnd(output, gasUsed, err, reverted)
+		t.captureEnd(output, err, reverted)
 		return
 	}
 
@@ -290,7 +260,6 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 }
 
 func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
-	defer catchPanic()
 	// Error happened during tx validation.
 	if err != nil {
 		return
@@ -303,7 +272,6 @@ func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
 }
 
 func (t *erc7562Tracer) OnLog(log1 *types.Log) {
-	defer catchPanic()
 	// Only logs need to be captured via opcode processing
 	if !t.config.WithLog {
 		return
@@ -324,14 +292,15 @@ func (t *erc7562Tracer) OnLog(log1 *types.Log) {
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
-	defer catchPanic()
 
 	if t.transactionType == types.Rip7560Type {
 		realStack := t.callstackWithOpcodes
 		t.callstackWithOpcodes = make([]callFrameWithOpcodes, 1)
 		t.callstackWithOpcodes[0] = callFrameWithOpcodes{
-			From:              common.Address{},
-			To:                &core.AA_ENTRY_POINT,
+			callFrame: callFrame{
+				From: common.Address{},
+				To:   &core.AA_ENTRY_POINT,
+			},
 			Calls:             realStack,
 			ContractSize:      make(map[common.Address]*contractSizeWithOpcode),
 			ExtCodeAccessInfo: make([]common.Address, 0),
@@ -373,7 +342,6 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 
 // Stop terminates execution of the tracer at the first opportune moment.
 func (t *erc7562Tracer) Stop(err error) {
-	defer catchPanic()
 	t.reason = err
 	t.interrupt.Store(true)
 }
@@ -392,7 +360,6 @@ func (t *erc7562Tracer) clearFailedLogs(cf *callFrameWithOpcodes, parentFailed b
 }
 
 func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
-	defer catchPanic()
 	opcode := vm.OpCode(op)
 	var opcodeWithStack *opcodeWithPartialStack
 	stackSize := len(scope.StackData())
@@ -430,14 +397,14 @@ func (t *erc7562Tracer) handleGasObserved(opcode vm.OpCode, currentCallFrame *ca
 	// [OP-012]
 	pendingGasObserved := t.lastOpWithStack.Opcode == vm.GAS && !isCall(opcode)
 	if pendingGasObserved {
-		incrementCount(currentCallFrame.UsedOpcodes, vm.GAS)
+		currentCallFrame.UsedOpcodes[vm.GAS]++
 	}
 }
 
 func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame *callFrameWithOpcodes) {
 	// ignore "unimportant" opcodes
 	if opcode != vm.GAS && !t.isIgnoredOpcode(opcode) {
-		incrementCount(currentCallFrame.UsedOpcodes, opcode)
+		currentCallFrame.UsedOpcodes[opcode]++
 	}
 }
 
@@ -456,11 +423,11 @@ func (t *erc7562Tracer) handleStorageAccess(opcode vm.OpCode, scope tracing.OpCo
 				currentCallFrame.AccessedSlots.Reads[slotHex] = append(currentCallFrame.AccessedSlots.Reads[slotHex], t.env.StateDB.GetState(addr, slot).Hex())
 			}
 		} else if opcode == vm.SSTORE {
-			incrementCount(currentCallFrame.AccessedSlots.Writes, slotHex)
+			currentCallFrame.AccessedSlots.Writes[slotHex]++
 		} else if opcode == vm.TLOAD {
-			incrementCount(currentCallFrame.AccessedSlots.TransientReads, slotHex)
+			currentCallFrame.AccessedSlots.TransientReads[slotHex]++
 		} else {
-			incrementCount(currentCallFrame.AccessedSlots.TransientWrites, slotHex)
+			currentCallFrame.AccessedSlots.TransientWrites[slotHex]++
 		}
 	}
 }
@@ -560,8 +527,4 @@ func defaultIgnoredOpcodes() map[vm.OpCode]struct{} {
 func isAllowedPrecompile(addr common.Address) bool {
 	addrInt := addr.Big()
 	return addrInt.Cmp(big.NewInt(0)) == 1 && addrInt.Cmp(big.NewInt(10)) == -1
-}
-
-func incrementCount[K comparable](m map[K]uint64, k K) {
-	m[k] = m[k] + 1
 }
