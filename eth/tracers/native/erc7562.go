@@ -464,7 +464,7 @@ func (t *erc7562Tracer) handleAccessedContractSize(opcode vm.OpCode, scope traci
 			n = 1
 		}
 		addr := common.BytesToAddress(peepStack(scope.StackData(), n).Bytes())
-		if _, ok := currentCallFrame.ContractSize[addr]; !ok && !isAllowedPrecompile(addr) {
+		if _, ok := currentCallFrame.ContractSize[addr]; !ok {
 			currentCallFrame.ContractSize[addr] = &contractSizeWithOpcode{
 				ContractSize: len(t.env.StateDB.GetCode(addr)),
 				Opcode:       opcode,
@@ -520,11 +520,4 @@ func defaultIgnoredOpcodes() map[vm.OpCode]struct{} {
 	}
 
 	return ignored
-}
-
-// not using 'isPrecompiled' to only allow the ones defined by the ERC-7562 as stateless precompiles
-// [OP-062]
-func isAllowedPrecompile(addr common.Address) bool {
-	addrInt := addr.Big()
-	return addrInt.Cmp(big.NewInt(0)) == 1 && addrInt.Cmp(big.NewInt(10)) == -1
 }
