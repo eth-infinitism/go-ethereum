@@ -557,7 +557,7 @@ func (args *TransactionArgs) ToTransaction(defaultType int) *types.Transaction {
 			AccessList:    al,
 			// RIP-7560 parameters
 			Sender:                      args.Sender,
-			AuthorizationData:           *args.AuthorizationData,
+			SenderValidationData:        *args.AuthorizationData,
 			Paymaster:                   args.Paymaster,
 			PaymasterData:               *args.PaymasterData,
 			Deployer:                    args.Deployer,
@@ -565,7 +565,7 @@ func (args *TransactionArgs) ToTransaction(defaultType int) *types.Transaction {
 			BuilderFee:                  (*big.Int)(args.BuilderFee),
 			ValidationGasLimit:          toUint64(args.ValidationGas),
 			PaymasterValidationGasLimit: toUint64(args.PaymasterGas),
-			PostOpGas:                   toUint64(args.PostOpGas),
+			PostOpGasLimit:              toUint64(args.PostOpGas),
 		}
 
 		zeroAddress := common.Address{}
