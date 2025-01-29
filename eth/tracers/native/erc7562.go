@@ -46,7 +46,18 @@ type contractSizeWithOpcode struct {
 }
 
 type callFrameWithOpcodes struct {
-	callFrame
+	Type             vm.OpCode       `json:"-"`
+	From             common.Address  `json:"from"`
+	Gas              uint64          `json:"gas"`
+	GasUsed          uint64          `json:"gasUsed"`
+	To               *common.Address `json:"to,omitempty" rlp:"optional"`
+	Input            []byte          `json:"input" rlp:"optional"`
+	Output           []byte          `json:"output,omitempty" rlp:"optional"`
+	Error            string          `json:"error,omitempty" rlp:"optional"`
+	RevertReason     string          `json:"revertReason,omitempty"`
+	Logs             []callLog       `json:"logs,omitempty" rlp:"optional"`
+	Value            *big.Int        `json:"value,omitempty" rlp:"optional"`
+	revertedSnapshot bool
 
 	AccessedSlots     accessedSlots                              `json:"accessedSlots"`
 	ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
@@ -93,12 +104,18 @@ func (f *callFrameWithOpcodes) processOutput(output []byte, err error, reverted 
 }
 
 type callFrameWithOpcodesMarshaling struct {
-	TypeString string `json:"type"`
-	Gas        hexutil.Uint64
-	GasUsed    hexutil.Uint64
-	Value      *hexutil.Big
-	Input      hexutil.Bytes
-	Output     hexutil.Bytes
+	TypeString        string `json:"type"`
+	Gas               hexutil.Uint64
+	GasUsed           hexutil.Uint64
+	Value             *hexutil.Big
+	Input             hexutil.Bytes
+	Output            hexutil.Bytes
+	AccessedSlots     accessedSlots                              `json:"accessedSlots"`
+	ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
+	UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
+	ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
+	OutOfGas          bool                                       `json:"outOfGas"`
+	Calls             []callFrameWithOpcodes                     `json:"calls,omitempty"`
 }
 
 type accessedSlots struct {
@@ -131,7 +148,7 @@ type erc7562Tracer struct {
 // newErc7562Tracer returns a native go tracer which tracks
 // call frames of a tx, and implements vm.EVMLogger.
 func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage, _ *params.ChainConfig) (*tracers.Tracer, error) {
-	t, err := newErc7562TracerObject(ctx, cfg)
+	t, err := newErc7562TracerObject(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +185,7 @@ func getFullConfiguration(partial erc7562TracerConfig) erc7562TracerConfig {
 	return config
 }
 
-func newErc7562TracerObject(ctx *tracers.Context, cfg json.RawMessage) (*erc7562Tracer, error) {
+func newErc7562TracerObject(cfg json.RawMessage) (*erc7562Tracer, error) {
 	var config erc7562TracerConfig
 	if cfg != nil {
 		if err := json.Unmarshal(cfg, &config); err != nil {
@@ -200,14 +217,12 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 
 	toCopy := to
 	call := callFrameWithOpcodes{
-		callFrame: callFrame{
-			Type:  vm.OpCode(typ),
-			From:  from,
-			To:    &toCopy,
-			Input: common.CopyBytes(input),
-			Gas:   gas,
-			Value: value,
-		},
+		Type:  vm.OpCode(typ),
+		From:  from,
+		To:    &toCopy,
+		Input: common.CopyBytes(input),
+		Gas:   gas,
+		Value: value,
 		AccessedSlots: accessedSlots{
 			Reads:           map[string][]string{},
 			Writes:          map[string]uint64{},
@@ -297,10 +312,8 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 		realStack := t.callstackWithOpcodes
 		t.callstackWithOpcodes = make([]callFrameWithOpcodes, 1)
 		t.callstackWithOpcodes[0] = callFrameWithOpcodes{
-			callFrame: callFrame{
-				From: common.Address{},
-				To:   &core.AA_ENTRY_POINT,
-			},
+			From:              common.Address{},
+			To:                &core.AA_ENTRY_POINT,
 			Calls:             realStack,
 			ContractSize:      make(map[common.Address]*contractSizeWithOpcode),
 			ExtCodeAccessInfo: make([]common.Address, 0),
