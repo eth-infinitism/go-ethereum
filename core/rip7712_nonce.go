@@ -1,15 +1,16 @@
 package core
 
 import (
+	"math/big"
+	"slices"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
-	"math/big"
-	"slices"
 )
 
 // TODO: accept address as configuration parameter
-var AA_NONCE_MANAGER = common.HexToAddress("0x632FaFb21910D6C8b4A3995063Dd984F2b829C02")
+var AA_NONCE_MANAGER = common.HexToAddress("0x3D45A0363baBA693432f9Cb82c60BE9410A5Fd8f")
 
 func prepareNonceManagerMessage(tx *types.Rip7560AccountAbstractionTx) []byte {
 
