@@ -599,7 +599,7 @@ func applyPaymasterValidationFrame(st *stateTransition, epc *EntryPointCall, tx 
 	if err != nil {
 		return nil, 0, 0, 0, wrapError(err)
 	}
-	if len(apd.Context) > 0 && aatx.PostOpGas == 0 {
+	if len(apd.Context) > 0 && aatx.PostOpGasLimit == 0 {
 		return nil, 0, 0, 0, wrapError(
 			fmt.Errorf(
 				"paymaster returned a context of size %d but the paymasterPostOpGasLimit is 0",
@@ -613,7 +613,7 @@ func applyPaymasterValidationFrame(st *stateTransition, epc *EntryPointCall, tx 
 func applyPaymasterPostOpFrame(st *stateTransition, aatx *types.Rip7560AccountAbstractionTx, vpr *ValidationPhaseResult, success bool, gasUsed uint64) *ExecutionResult {
 	var paymasterPostOpResult *ExecutionResult
 	paymasterPostOpMsg := preparePostOpMessage(vpr, success, gasUsed)
-	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg, aatx.PostOpGas)
+	paymasterPostOpResult = CallFrame(st, &AA_ENTRY_POINT, aatx.Paymaster, paymasterPostOpMsg, aatx.PostOpGasLimit)
 	return paymasterPostOpResult
 }
 
@@ -685,7 +685,7 @@ func ApplyRip7560ExecutionPhase(
 			}
 			executionStatus = ExecutionStatusPostOpFailure
 		}
-		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
+		postOpGasPenalty := (aatx.PostOpGasLimit - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		postOpGasUsed += postOpGasPenalty
 		gasUsed += postOpGasUsed
 	}

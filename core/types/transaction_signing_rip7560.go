@@ -42,10 +42,10 @@ func (s rip7560Signer) Hash(tx *Transaction) common.Hash {
 			tx.GasFeeCap(),
 			aatx.ValidationGasLimit,
 			aatx.PaymasterValidationGasLimit,
-			aatx.PostOpGas,
+			aatx.PostOpGasLimit,
 			tx.Gas(),
 			tx.AccessList(),
 
-			// no AuthorizationData here - this is hashing "for signing"
+			// no SenderValidationData here - this is hashing "for signing"
 		})
 }
