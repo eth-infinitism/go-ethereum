@@ -190,7 +190,7 @@ func (pool *Rip7560BundlerPool) GetBlobs(vhashes []common.Hash) ([]*kzg4844.Blob
 	return nil, nil
 }
 
-func (pool *Rip7560BundlerPool) Add(_ []*types.Transaction, _ bool, _ bool) []error {
+func (pool *Rip7560BundlerPool) Add(_ []*types.Transaction, _ bool) []error {
 	return nil
 }
 

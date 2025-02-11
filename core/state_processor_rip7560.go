@@ -414,7 +414,7 @@ func ApplyRip7560ValidationPhases(
 		deploymentUsedGas = resultDeployer.UsedGas
 	} else {
 		if !aatx.IsRip7712Nonce() {
-			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
+			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1, tracing.NonceChangeEoACall)
 		}
 	}
 
