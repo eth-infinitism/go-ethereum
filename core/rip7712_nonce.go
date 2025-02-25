@@ -10,7 +10,7 @@ import (
 )
 
 // TODO: accept address as configuration parameter
-var AA_NONCE_MANAGER = common.HexToAddress("0x3D45A0363baBA693432f9Cb82c60BE9410A5Fd8f")
+var AA_NONCE_MANAGER = common.HexToAddress("0x59c405Dc6D032d9Ff675350FefC66F3b6c1bEbaB")
 
 func prepareNonceManagerMessage(tx *types.Rip7560AccountAbstractionTx) []byte {
 
