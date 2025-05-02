@@ -215,8 +215,8 @@ func handleRip7560Transactions(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		*usedGas += validationGasUsed
-		log.Info("validation gas report", "gasUsed", validationGasUsed, "nonceManager", vpr.NonceManagerUsedGas, "refund", vpr.ValidationRefund)
+
+		log.Info("validation gas report", "gasUsed", validationGasUsed, "nonceManager", vpr.NonceManagerUsedGas, "refund", vpr.ValidationRefund, "pretransactioncost", vpr.PreTransactionGasCost)
 
 		// This is the line separating the Validation and Execution phases
 		// It should be separated to implement the mempool-friendly AA RIP-7711
