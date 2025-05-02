@@ -3,6 +3,11 @@ package core
 import (
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
+
+	"github.com/holiman/uint256"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -12,9 +17,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/holiman/uint256"
-	"math"
-	"math/big"
 )
 
 type EntryPointCall struct {
@@ -701,29 +703,6 @@ func ApplyRip7560ExecutionPhase(
 	}
 	gasRemaining := totalGasLimit - gasUsed
 	gp.AddGas(gasRemaining)
-
-	err := injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
-	if err != nil {
-		return nil, err
-	}
-	if aatx.Deployer != nil {
-		err = injectRIP7560AccountDeployedEvent(aatx, header, statedb)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if executionResult.Failed() {
-		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if paymasterPostOpResult != nil && paymasterPostOpResult.Failed() {
-		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	// TODO: naming convention hell!!! 'usedGas' is 'CumulativeGasUsed' in block processing
 	*usedGas += gasUsed

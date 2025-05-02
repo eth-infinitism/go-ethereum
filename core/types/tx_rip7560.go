@@ -19,38 +19,41 @@ package types
 import (
 	"bytes"
 	"fmt"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
-	"math/big"
 )
 
 // Rip7560AccountAbstractionTx represents an RIP-7560 transaction.
 type Rip7560AccountAbstractionTx struct {
 	// overlapping fields
-	ChainID    *big.Int
-	Nonce      uint64
-	GasTipCap  *big.Int // a.k.a. maxPriorityFeePerGas
-	GasFeeCap  *big.Int // a.k.a. maxFeePerGas
-	Gas        uint64
-	AccessList AccessList
+	ChainID *big.Int
+	// RIP-7712 two-dimensional nonce (optional), 192 bits
+	NonceKey *big.Int
+	Nonce    uint64
 
-	// extra fields
-	Sender                      *common.Address
-	AuthorizationData           []byte
+	Sender               *common.Address
+	SenderValidationData []byte
+
+	Deployer     *common.Address `rlp:"nil"`
+	DeployerData []byte
+
+	Paymaster     *common.Address `rlp:"nil"`
+	PaymasterData []byte
+
 	ExecutionData               []byte
-	Paymaster                   *common.Address `rlp:"nil"`
-	PaymasterData               []byte
-	Deployer                    *common.Address `rlp:"nil"`
-	DeployerData                []byte
 	BuilderFee                  *big.Int
+	GasTipCap                   *big.Int // a.k.a. maxPriorityFeePerGas
+	GasFeeCap                   *big.Int // a.k.a. maxFeePerGas
 	ValidationGasLimit          uint64
 	PaymasterValidationGasLimit uint64
 	PostOpGas                   uint64
-
-	// RIP-7712 two-dimensional nonce (optional), 192 bits
-	NonceKey *big.Int
+	Gas                         uint64
+	AccessList                  AccessList
+	AuthList                    []SetCodeAuthorization
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
@@ -69,7 +72,7 @@ func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 		GasFeeCap: new(big.Int),
 
 		Sender:                      copyAddressPtr(tx.Sender),
-		AuthorizationData:           common.CopyBytes(tx.AuthorizationData),
+		SenderValidationData:        common.CopyBytes(tx.SenderValidationData),
 		Paymaster:                   copyAddressPtr(tx.Paymaster),
 		PaymasterData:               common.CopyBytes(tx.PaymasterData),
 		Deployer:                    copyAddressPtr(tx.Deployer),
@@ -78,8 +81,10 @@ func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 		ValidationGasLimit:          tx.ValidationGasLimit,
 		PaymasterValidationGasLimit: tx.PaymasterValidationGasLimit,
 		PostOpGas:                   tx.PostOpGas,
+		AuthList:                    make([]SetCodeAuthorization, len(tx.AuthList)),
 	}
 	copy(cpy.AccessList, tx.AccessList)
+	copy(cpy.AuthList, tx.AuthList)
 	if tx.ChainID != nil {
 		cpy.ChainID.Set(tx.ChainID)
 	}
@@ -152,7 +157,7 @@ func (tx *Rip7560AccountAbstractionTx) PreTransactionGasCost() (uint64, error) {
 
 func (tx *Rip7560AccountAbstractionTx) callDataGasCost() (uint64, error) {
 	return SumGas(
-		callDataCost(tx.AuthorizationData),
+		callDataCost(tx.SenderValidationData),
 		callDataCost(tx.DeployerData),
 		callDataCost(tx.ExecutionData),
 		callDataCost(tx.PaymasterData),
@@ -296,7 +301,7 @@ func (tx *Rip7560AccountAbstractionTx) AbiEncode() ([]byte, error) {
 		Deployer:                    *deployer,
 		DeployerData:                tx.DeployerData,
 		ExecutionData:               tx.ExecutionData,
-		AuthorizationData:           tx.AuthorizationData,
+		AuthorizationData:           tx.SenderValidationData,
 	}
 	packed, err := args.Pack(&record)
 	return packed, err
