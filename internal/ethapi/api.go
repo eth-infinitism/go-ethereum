@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -944,7 +945,7 @@ func RPCMarshalBlock(block *types.Block, inclTx bool, fullTx bool, config *param
 type RPCTransaction struct {
 	BlockHash           *common.Hash                 `json:"blockHash"`
 	BlockNumber         *hexutil.Big                 `json:"blockNumber"`
-	From                common.Address    `json:"from,omitempty"`
+	From                common.Address               `json:"from,omitempty"`
 	Gas                 hexutil.Uint64               `json:"gas"`
 	GasPrice            *hexutil.Big                 `json:"gasPrice"`
 	GasFeeCap           *hexutil.Big                 `json:"maxFeePerGas,omitempty"`
@@ -953,7 +954,7 @@ type RPCTransaction struct {
 	Hash                common.Hash                  `json:"hash"`
 	Input               hexutil.Bytes                `json:"input"`
 	Nonce               hexutil.Uint64               `json:"nonce"`
-	To                  *common.Address   `json:"to,omitempty"`
+	To                  *common.Address              `json:"to,omitempty"`
 	TransactionIndex    *hexutil.Uint64              `json:"transactionIndex"`
 	Value               *hexutil.Big                 `json:"value"`
 	Type                hexutil.Uint64               `json:"type"`
@@ -961,14 +962,14 @@ type RPCTransaction struct {
 	ChainID             *hexutil.Big                 `json:"chainId,omitempty"`
 	BlobVersionedHashes []common.Hash                `json:"blobVersionedHashes,omitempty"`
 	AuthorizationList   []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
-	V                   *hexutil.Big      `json:"v,omitempty"`
-	R                   *hexutil.Big      `json:"r,omitempty"`
-	S                   *hexutil.Big      `json:"s,omitempty"`
+	V                   *hexutil.Big                 `json:"v,omitempty"`
+	R                   *hexutil.Big                 `json:"r,omitempty"`
+	S                   *hexutil.Big                 `json:"s,omitempty"`
 	YParity             *hexutil.Uint64              `json:"yParity,omitempty"`
 
 	// Introduced by RIP-7560 Transaction
 	Sender                      *common.Address `json:"sender,omitempty"`
-	AuthorizationData           *hexutil.Bytes  `json:"authorizationData,omitempty"`
+	SenderValidationData        *hexutil.Bytes  `json:"senderValidationData,omitempty"`
 	ExecutionData               *hexutil.Bytes  `json:"executionData,omitempty"`
 	Paymaster                   *common.Address `json:"paymaster,omitempty"`
 	PaymasterData               *hexutil.Bytes  `json:"paymasterData,omitempty"`
@@ -1063,7 +1064,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		result.NonceKey = (*hexutil.Big)(rip7560Tx.NonceKey)
 		result.Input = make(hexutil.Bytes, 0)
 		result.Sender = rip7560Tx.Sender
-		result.AuthorizationData = toBytes(rip7560Tx.AuthorizationData)
+		result.SenderValidationData = toBytes(rip7560Tx.SenderValidationData)
 		result.ExecutionData = toBytes(rip7560Tx.ExecutionData)
 		result.Gas = hexutil.Uint64(tx.Gas())
 		result.Paymaster = rip7560Tx.Paymaster

@@ -3,6 +3,11 @@ package core
 import (
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
+
+	"github.com/holiman/uint256"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -12,9 +17,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/holiman/uint256"
-	"math"
-	"math/big"
 )
 
 type EntryPointCall struct {
@@ -208,6 +210,12 @@ func handleRip7560Transactions(
 		}
 		validationPhaseResults = append(validationPhaseResults, vpr)
 		validatedTransactions = append(validatedTransactions, tx)
+
+		validationGasUsed, err := vpr.validationPhaseUsedGas()
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		*usedGas += validationGasUsed
 
 		// This is the line separating the Validation and Execution phases
 		// It should be separated to implement the mempool-friendly AA RIP-7711
