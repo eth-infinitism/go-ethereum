@@ -216,6 +216,7 @@ func handleRip7560Transactions(
 			return nil, nil, nil, nil, err
 		}
 		*usedGas += validationGasUsed
+		log.Info("validation gas report", "gasUsed", validationGasUsed, "nonceManager", vpr.NonceManagerUsedGas, "refund", vpr.ValidationRefund)
 
 		// This is the line separating the Validation and Execution phases
 		// It should be separated to implement the mempool-friendly AA RIP-7711
@@ -676,6 +677,8 @@ func ApplyRip7560ExecutionPhase(
 		executionResult.UsedGas +
 		executionGasPenalty
 
+	log.Info("execution gas used", "gasUsed", executionResult.UsedGas, "penalty", executionGasPenalty)
+
 	gasRefund := capRefund(execRefund+vpr.ValidationRefund, gasUsed)
 
 	var postOpGasUsed uint64
@@ -696,6 +699,7 @@ func ApplyRip7560ExecutionPhase(
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		postOpGasUsed += postOpGasPenalty
 		gasUsed += postOpGasUsed
+		log.Info("post op gas used", "gasUsed", paymasterPostOpResult.UsedGas, "penalty", postOpGasPenalty)
 	}
 	gasUsed -= gasRefund
 	refundPayer(vpr, statedb, gasUsed)
@@ -709,29 +713,6 @@ func ApplyRip7560ExecutionPhase(
 	}
 	gasRemaining := totalGasLimit - gasUsed
 	gp.AddGas(gasRemaining)
-
-	err := injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
-	if err != nil {
-		return nil, err
-	}
-	if aatx.Deployer != nil {
-		err = injectRIP7560AccountDeployedEvent(aatx, header, statedb)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if executionResult.Failed() {
-		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if paymasterPostOpResult != nil && paymasterPostOpResult.Failed() {
-		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	// TODO: naming convention hell!!! 'usedGas' is 'CumulativeGasUsed' in block processing
 	*usedGas += gasUsed
