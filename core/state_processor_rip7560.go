@@ -211,13 +211,6 @@ func handleRip7560Transactions(
 		validationPhaseResults = append(validationPhaseResults, vpr)
 		validatedTransactions = append(validatedTransactions, tx)
 
-		validationGasUsed, err := vpr.validationPhaseUsedGas()
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
-
-		log.Info("validation gas report", "gasUsed", validationGasUsed, "nonceManager", vpr.NonceManagerUsedGas, "refund", vpr.ValidationRefund, "pretransactioncost", vpr.PreTransactionGasCost)
-
 		// This is the line separating the Validation and Execution phases
 		// It should be separated to implement the mempool-friendly AA RIP-7711
 		// for i, vpr := range validationPhaseResults
@@ -677,8 +670,6 @@ func ApplyRip7560ExecutionPhase(
 		executionResult.UsedGas +
 		executionGasPenalty
 
-	log.Info("execution gas used", "gasUsed", executionResult.UsedGas, "penalty", executionGasPenalty)
-
 	gasRefund := capRefund(execRefund+vpr.ValidationRefund, gasUsed)
 
 	var postOpGasUsed uint64
@@ -699,7 +690,6 @@ func ApplyRip7560ExecutionPhase(
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		postOpGasUsed += postOpGasPenalty
 		gasUsed += postOpGasUsed
-		log.Info("post op gas used", "gasUsed", paymasterPostOpResult.UsedGas, "penalty", postOpGasPenalty)
 	}
 	gasUsed -= gasRefund
 	refundPayer(vpr, statedb, gasUsed)
