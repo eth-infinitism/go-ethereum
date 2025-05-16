@@ -29,6 +29,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/eth/tracers/internal"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 )
@@ -63,7 +65,10 @@ type callFrameWithOpcodes struct {
 	UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 	ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 	OutOfGas          bool                                       `json:"outOfGas"`
-	Calls             []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
+	// Keccak preimages for the whole transaction are stored in the
+	// root call frame.
+	KeccakPreimages [][]byte               `json:"keccak,omitempty"`
+	Calls           []callFrameWithOpcodes `json:"calls,omitempty" rlp:"optional"`
 }
 
 func (f callFrameWithOpcodes) TypeString() string {
@@ -103,12 +108,13 @@ func (f *callFrameWithOpcodes) processOutput(output []byte, err error, reverted 
 }
 
 type callFrameWithOpcodesMarshaling struct {
-	TypeString string `json:"type"`
-	Gas        hexutil.Uint64
-	GasUsed    hexutil.Uint64
-	Value      *hexutil.Big
-	Input      hexutil.Bytes
-	Output     hexutil.Bytes
+	TypeString      string `json:"type"`
+	Gas             hexutil.Uint64
+	GasUsed         hexutil.Uint64
+	Value           *hexutil.Big
+	Input           hexutil.Bytes
+	Output          hexutil.Bytes
+	KeccakPreimages []hexutil.Bytes
 }
 
 type accessedSlots struct {
@@ -134,8 +140,8 @@ type erc7562Tracer struct {
 	ignoredOpcodes       map[vm.OpCode]struct{}
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastOpWithStack      *opcodeWithPartialStack
-	Keccak               map[string]struct{} `json:"keccak"`
 	transactionType      uint8
+	keccakPreimages      map[string]struct{}
 }
 
 // newErc7562Tracer returns a native go tracer which tracks
@@ -189,8 +195,8 @@ func newErc7562TracerObject(cfg json.RawMessage) (*erc7562Tracer, error) {
 	// and is populated on start and end.
 	return &erc7562Tracer{
 		callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1),
-		Keccak:               make(map[string]struct{}),
 		config:               getFullConfiguration(config),
+		keccakPreimages:      make(map[string]struct{}),
 	}, nil
 }
 
@@ -304,32 +310,18 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
 
-	callFrameJSON, err := json.Marshal(t.callstackWithOpcodes[0])
+	keccak := make([][]byte, 0, len(t.callstackWithOpcodes[0].KeccakPreimages))
+	for k := range t.keccakPreimages {
+		keccak = append(keccak, []byte(k))
+	}
+	t.callstackWithOpcodes[0].KeccakPreimages = keccak
+
+	enc, err := json.Marshal(t.callstackWithOpcodes[0])
 	if err != nil {
 		return nil, err
 	}
 
-	// Unmarshal the generated JSON into a map
-	var resultMap map[string]interface{}
-	if err := json.Unmarshal(callFrameJSON, &resultMap); err != nil {
-		return nil, err
-	}
-
-	// Converting keccak mapping to array
-	keccakArray := make([]hexutil.Bytes, len(t.Keccak))
-	i := 0
-	for k := range t.Keccak {
-		keccakArray[i] = hexutil.Bytes(k)
-		i++
-	}
-	resultMap["keccak"] = keccakArray
-
-	// Marshal the final map back to JSON
-	finalJSON, err := json.Marshal(resultMap)
-	if err != nil {
-		return nil, err
-	}
-	return finalJSON, t.reason
+	return enc, t.reason
 }
 
 // Stop terminates execution of the tracer at the first opportune moment.
@@ -428,10 +420,12 @@ func (t *erc7562Tracer) storeKeccak(opcode vm.OpCode, scope tracing.OpContext) {
 	if opcode == vm.KECCAK256 {
 		dataOffset := peepStack(scope.StackData(), 0).Uint64()
 		dataLength := peepStack(scope.StackData(), 1).Uint64()
-		memory := scope.MemoryData()
-		keccak := make([]byte, dataLength)
-		copy(keccak, memory[dataOffset:dataOffset+dataLength])
-		t.Keccak[string(keccak)] = struct{}{}
+		preimage, err := internal.GetMemoryCopyPadded(scope.MemoryData(), int64(dataOffset), int64(dataLength))
+		if err != nil {
+			log.Warn("erc7562Tracer: failed to copy keccak preimage from memory", "err", err)
+			return
+		}
+		t.keccakPreimages[string(preimage)] = struct{}{}
 	}
 }
 

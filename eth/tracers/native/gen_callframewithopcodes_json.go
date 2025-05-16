@@ -32,6 +32,7 @@ func (c callFrameWithOpcodes) MarshalJSON() ([]byte, error) {
 		UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 		ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 		OutOfGas          bool                                       `json:"outOfGas"`
+		KeccakPreimages   []hexutil.Bytes                            `json:"keccak,omitempty"`
 		Calls             []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
 		TypeString        string                                     `json:"type"`
 	}
@@ -52,6 +53,12 @@ func (c callFrameWithOpcodes) MarshalJSON() ([]byte, error) {
 	enc.UsedOpcodes = c.UsedOpcodes
 	enc.ContractSize = c.ContractSize
 	enc.OutOfGas = c.OutOfGas
+	if c.KeccakPreimages != nil {
+		enc.KeccakPreimages = make([]hexutil.Bytes, len(c.KeccakPreimages))
+		for k, v := range c.KeccakPreimages {
+			enc.KeccakPreimages[k] = v
+		}
+	}
 	enc.Calls = c.Calls
 	enc.TypeString = c.TypeString()
 	return json.Marshal(&enc)
@@ -76,6 +83,7 @@ func (c *callFrameWithOpcodes) UnmarshalJSON(input []byte) error {
 		UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
 		ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 		OutOfGas          *bool                                      `json:"outOfGas"`
+		KeccakPreimages   []hexutil.Bytes                            `json:"keccak,omitempty"`
 		Calls             []callFrameWithOpcodes                     `json:"calls,omitempty" rlp:"optional"`
 	}
 	var dec callFrameWithOpcodes0
@@ -129,6 +137,12 @@ func (c *callFrameWithOpcodes) UnmarshalJSON(input []byte) error {
 	}
 	if dec.OutOfGas != nil {
 		c.OutOfGas = *dec.OutOfGas
+	}
+	if dec.KeccakPreimages != nil {
+		c.KeccakPreimages = make([][]byte, len(dec.KeccakPreimages))
+		for k, v := range dec.KeccakPreimages {
+			c.KeccakPreimages[k] = v
+		}
 	}
 	if dec.Calls != nil {
 		c.Calls = dec.Calls
