@@ -141,7 +141,6 @@ type erc7562Tracer struct {
 	ignoredOpcodes       map[vm.OpCode]struct{}
 	callstackWithOpcodes []callFrameWithOpcodes
 	lastOpWithStack      *opcodeWithPartialStack
-	transactionType      uint8
 	keccakPreimages      map[string]struct{}
 }
 
@@ -204,7 +203,6 @@ func newErc7562TracerObject(cfg json.RawMessage) (*erc7562Tracer, error) {
 func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
 	t.env = env
 	t.gasLimit = tx.Gas()
-	t.transactionType = tx.Type()
 }
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
@@ -248,6 +246,9 @@ func (t *erc7562Tracer) captureEnd(output []byte, err error, reverted bool) {
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	if t.interrupt.Load() {
+		return
+	}
 	if depth == 0 {
 		t.captureEnd(output, err, reverted)
 		return
@@ -272,6 +273,9 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 }
 
 func (t *erc7562Tracer) OnTxEnd(receipt *types.Receipt, err error) {
+	if t.interrupt.Load() {
+		return
+	}
 	// Error happened during tx validation.
 	if err != nil {
 		return
@@ -304,6 +308,9 @@ func (t *erc7562Tracer) OnLog(log1 *types.Log) {
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
+	if t.interrupt.Load() {
+		return nil, t.reason
+	}
 	if len(t.callstackWithOpcodes) != 1 {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
@@ -345,6 +352,9 @@ func (t *erc7562Tracer) clearFailedLogs(cf *callFrameWithOpcodes, parentFailed b
 }
 
 func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+	if t.interrupt.Load() {
+		return
+	}
 	opcode := vm.OpCode(op)
 	var opcodeWithStack *opcodeWithPartialStack
 	stackSize := len(scope.StackData())
