@@ -134,7 +134,6 @@ type opcodeWithPartialStack struct {
 type erc7562Tracer struct {
 	config    erc7562TracerConfig
 	gasLimit  uint64
-	depth     int
 	interrupt atomic.Bool // Atomic flag to signal execution interruption
 	reason    error       // Textual reason for the interruption
 	env       *tracing.VMContext
@@ -210,7 +209,6 @@ func (t *erc7562Tracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction,
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-	t.depth = depth
 	// Skip if tracing was interrupted
 	if t.interrupt.Load() {
 		return
@@ -254,8 +252,6 @@ func (t *erc7562Tracer) OnExit(depth int, output []byte, gasUsed uint64, err err
 		t.captureEnd(output, err, reverted)
 		return
 	}
-
-	t.depth = depth - 1
 
 	size := len(t.callstackWithOpcodes)
 	if size <= 1 {
