@@ -17,9 +17,11 @@
 package native
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"math/big"
+	"slices"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -315,6 +317,9 @@ func (t *erc7562Tracer) GetResult() (json.RawMessage, error) {
 		keccak = append(keccak, []byte(k))
 	}
 	t.callstackWithOpcodes[0].KeccakPreimages = keccak
+	slices.SortFunc(keccak, func(a, b []byte) int {
+		return bytes.Compare(a, b)
+	})
 
 	enc, err := json.Marshal(t.callstackWithOpcodes[0])
 	if err != nil {
