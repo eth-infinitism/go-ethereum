@@ -363,12 +363,15 @@ func (t *erc7562Tracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tra
 	if t.interrupt.Load() {
 		return
 	}
-	opcode := vm.OpCode(op)
-	var opcodeWithStack *opcodeWithPartialStack
-	stackSize := len(scope.StackData())
-	var stackTopItems []uint256.Int
-	for i := 0; i < t.config.StackTopItemsSize && i < stackSize; i++ {
-		stackTopItems = append(stackTopItems, *peepStack(scope.StackData(), i))
+	var (
+		opcode          = vm.OpCode(op)
+		opcodeWithStack *opcodeWithPartialStack
+		stackSize       = len(scope.StackData())
+		stackLimit      = min(stackSize, t.config.StackTopItemsSize)
+		stackTopItems   = make([]uint256.Int, stackLimit)
+	)
+	for i := 0; i < stackLimit; i++ {
+		stackTopItems[i] = *peepStack(scope.StackData(), i)
 	}
 	opcodeWithStack = &opcodeWithPartialStack{
 		Opcode:        opcode,
