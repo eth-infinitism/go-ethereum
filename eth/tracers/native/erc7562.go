@@ -167,9 +167,9 @@ func newErc7562Tracer(ctx *tracers.Context, cfg json.RawMessage, _ *params.Chain
 }
 
 type erc7562TracerConfig struct {
-	StackTopItemsSize int                    `json:"stackTopItemsSize"`
-	IgnoredOpcodes    map[vm.OpCode]struct{} `json:"ignoredOpcodes"` // Opcodes to ignore during OnOpcode hook execution
-	WithLog           bool                   `json:"withLog"`        // If true, erc7562 tracer will collect event logs
+	StackTopItemsSize int              `json:"stackTopItemsSize"`
+	IgnoredOpcodes    []hexutil.Uint64 `json:"ignoredOpcodes"` // Opcodes to ignore during OnOpcode hook execution
+	WithLog           bool             `json:"withLog"`        // If true, erc7562 tracer will collect event logs
 }
 
 func getFullConfiguration(partial erc7562TracerConfig) erc7562TracerConfig {
@@ -192,12 +192,19 @@ func newErc7562TracerObject(cfg json.RawMessage) (*erc7562Tracer, error) {
 			return nil, err
 		}
 	}
+	fullConfig := getFullConfiguration(config)
+	// Create a map of ignored opcodes for fast lookup
+	ignoredOpcodes := make(map[vm.OpCode]struct{}, len(fullConfig.IgnoredOpcodes))
+	for _, op := range fullConfig.IgnoredOpcodes {
+		ignoredOpcodes[vm.OpCode(op)] = struct{}{}
+	}
 	// First callframe contains tx context info
 	// and is populated on start and end.
 	return &erc7562Tracer{
 		callstackWithOpcodes: make([]callFrameWithOpcodes, 0, 1),
-		config:               getFullConfiguration(config),
+		config:               fullConfig,
 		keccakPreimages:      make(map[string]struct{}),
+		ignoredOpcodes:       ignoredOpcodes,
 	}, nil
 }
 
@@ -500,12 +507,12 @@ func (t *erc7562Tracer) isIgnoredOpcode(opcode vm.OpCode) bool {
 	return false
 }
 
-func defaultIgnoredOpcodes() map[vm.OpCode]struct{} {
-	ignored := make(map[vm.OpCode]struct{})
+func defaultIgnoredOpcodes() []hexutil.Uint64 {
+	ignored := make([]hexutil.Uint64, 0, 64)
 
 	// Allow all PUSHx, DUPx and SWAPx opcodes as they have sequential codes
 	for op := vm.PUSH0; op < vm.SWAP16; op++ {
-		ignored[op] = struct{}{}
+		ignored = append(ignored, hexutil.Uint64(op))
 	}
 
 	for _, op := range []vm.OpCode{
@@ -514,7 +521,7 @@ func defaultIgnoredOpcodes() map[vm.OpCode]struct{} {
 		vm.SLT, vm.SGT, vm.SHL, vm.SHR,
 		vm.AND, vm.OR, vm.NOT, vm.ISZERO,
 	} {
-		ignored[op] = struct{}{}
+		ignored = append(ignored, hexutil.Uint64(op))
 	}
 
 	return ignored
