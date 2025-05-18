@@ -121,10 +121,10 @@ type callFrameWithOpcodesMarshaling struct {
 }
 
 type accessedSlots struct {
-	Reads           map[string][]string `json:"reads"`
-	Writes          map[string]uint64   `json:"writes"`
-	TransientReads  map[string]uint64   `json:"transientReads"`
-	TransientWrites map[string]uint64   `json:"transientWrites"`
+	Reads           map[common.Hash][]common.Hash `json:"reads"`
+	Writes          map[common.Hash]uint64        `json:"writes"`
+	TransientReads  map[common.Hash]uint64        `json:"transientReads"`
+	TransientWrites map[common.Hash]uint64        `json:"transientWrites"`
 }
 
 type opcodeWithPartialStack struct {
@@ -229,10 +229,10 @@ func (t *erc7562Tracer) OnEnter(depth int, typ byte, from common.Address, to com
 		Gas:   gas,
 		Value: value,
 		AccessedSlots: accessedSlots{
-			Reads:           map[string][]string{},
-			Writes:          map[string]uint64{},
-			TransientReads:  map[string]uint64{},
-			TransientWrites: map[string]uint64{},
+			Reads:           map[common.Hash][]common.Hash{},
+			Writes:          map[common.Hash]uint64{},
+			TransientReads:  map[common.Hash]uint64{},
+			TransientWrites: map[common.Hash]uint64{},
 		},
 		UsedOpcodes:       map[vm.OpCode]uint64{},
 		ExtCodeAccessInfo: make([]common.Address, 0),
@@ -417,23 +417,22 @@ func (t *erc7562Tracer) storeUsedOpcode(opcode vm.OpCode, currentCallFrame *call
 func (t *erc7562Tracer) handleStorageAccess(opcode vm.OpCode, scope tracing.OpContext, currentCallFrame *callFrameWithOpcodes) {
 	if opcode == vm.SLOAD || opcode == vm.SSTORE || opcode == vm.TLOAD || opcode == vm.TSTORE {
 		slot := common.BytesToHash(peepStack(scope.StackData(), 0).Bytes())
-		slotHex := slot.Hex()
 		addr := scope.Address()
 
 		if opcode == vm.SLOAD {
 			// read slot values before this UserOp was created
 			// (so saving it if it was written before the first read)
-			_, rOk := currentCallFrame.AccessedSlots.Reads[slotHex]
-			_, wOk := currentCallFrame.AccessedSlots.Writes[slotHex]
+			_, rOk := currentCallFrame.AccessedSlots.Reads[slot]
+			_, wOk := currentCallFrame.AccessedSlots.Writes[slot]
 			if !rOk && !wOk {
-				currentCallFrame.AccessedSlots.Reads[slotHex] = append(currentCallFrame.AccessedSlots.Reads[slotHex], t.env.StateDB.GetState(addr, slot).Hex())
+				currentCallFrame.AccessedSlots.Reads[slot] = append(currentCallFrame.AccessedSlots.Reads[slot], t.env.StateDB.GetState(addr, slot))
 			}
 		} else if opcode == vm.SSTORE {
-			currentCallFrame.AccessedSlots.Writes[slotHex]++
+			currentCallFrame.AccessedSlots.Writes[slot]++
 		} else if opcode == vm.TLOAD {
-			currentCallFrame.AccessedSlots.TransientReads[slotHex]++
+			currentCallFrame.AccessedSlots.TransientReads[slot]++
 		} else {
-			currentCallFrame.AccessedSlots.TransientWrites[slotHex]++
+			currentCallFrame.AccessedSlots.TransientWrites[slot]++
 		}
 	}
 }
