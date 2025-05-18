@@ -116,6 +116,7 @@ type callFrameWithOpcodesMarshaling struct {
 	Value           *hexutil.Big
 	Input           hexutil.Bytes
 	Output          hexutil.Bytes
+	UsedOpcodes     map[hexutil.Uint64]uint64
 	KeccakPreimages []hexutil.Bytes
 }
 

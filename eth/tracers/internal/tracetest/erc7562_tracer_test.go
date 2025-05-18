@@ -62,7 +62,7 @@ type erc7562Trace struct {
 	revertedSnapshot  bool
 	AccessedSlots     accessedSlots                              `json:"accessedSlots"`
 	ExtCodeAccessInfo []common.Address                           `json:"extCodeAccessInfo"`
-	UsedOpcodes       map[vm.OpCode]uint64                       `json:"usedOpcodes"`
+	UsedOpcodes       map[hexutil.Uint64]uint64                  `json:"usedOpcodes"`
 	ContractSize      map[common.Address]*contractSizeWithOpcode `json:"contractSize"`
 	OutOfGas          bool                                       `json:"outOfGas"`
 	Calls             []erc7562Trace                             `json:"calls,omitempty" rlp:"optional"`
