@@ -25,6 +25,8 @@ import (
 	"math"
 	"math/big"
 
+	"github.com/holiman/uint256"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
@@ -34,7 +36,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/holiman/uint256"
 )
 
 var (
@@ -79,17 +80,17 @@ type TransactionArgs struct {
 	blobSidecarAllowed bool
 
 	// Introduced by RIP-7560 Transaction
-	Sender            *common.Address `json:"sender"`
-	AuthorizationData *hexutil.Bytes  `json:"authorizationData,omitempty"`
-	ExecutionData     *hexutil.Bytes  `json:"executionData,omitempty"`
-	Paymaster         *common.Address `json:"paymaster,omitempty"`
-	PaymasterData     *hexutil.Bytes  `json:"paymasterData,omitempty"`
-	Deployer          *common.Address `json:"deployer,omitempty"`
-	DeployerData      *hexutil.Bytes  `json:"deployerData,omitempty"`
-	BuilderFee        *hexutil.Big    `json:"builderFee,omitempty"`
-	ValidationGas     *hexutil.Uint64 `json:"verificationGasLimit"`
-	PaymasterGas      *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
-	PostOpGas         *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
+	Sender               *common.Address `json:"sender"`
+	SenderValidationData *hexutil.Bytes  `json:"senderValidationData,omitempty"`
+	ExecutionData        *hexutil.Bytes  `json:"executionData,omitempty"`
+	Paymaster            *common.Address `json:"paymaster,omitempty"`
+	PaymasterData        *hexutil.Bytes  `json:"paymasterData,omitempty"`
+	Deployer             *common.Address `json:"deployer,omitempty"`
+	DeployerData         *hexutil.Bytes  `json:"deployerData,omitempty"`
+	BuilderFee           *hexutil.Big    `json:"builderFee,omitempty"`
+	ValidationGas        *hexutil.Uint64 `json:"verificationGasLimit"`
+	PaymasterGas         *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
+	PostOpGas            *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
 
 	// Introduced by RIP-7712 Transaction
 	NonceKey *hexutil.Big `json:"nonceKey,omitempty"`
@@ -557,7 +558,7 @@ func (args *TransactionArgs) ToTransaction(defaultType int) *types.Transaction {
 			AccessList:    al,
 			// RIP-7560 parameters
 			Sender:                      args.Sender,
-			AuthorizationData:           *args.AuthorizationData,
+			SenderValidationData:        *args.SenderValidationData,
 			Paymaster:                   args.Paymaster,
 			PaymasterData:               *args.PaymasterData,
 			Deployer:                    args.Deployer,
